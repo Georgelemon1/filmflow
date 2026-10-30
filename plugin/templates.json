@@ -1,0 +1,1975 @@
+{
+  "_说明": "片厂节点模板与骨架包。templates = 可插入的单节点；packs = 新建片子的初始树。pack.tree 存在时表示「替换骨架」（从空白开始按 tree 铺），tree=null 表示沿用「新片」底稿。tree 节点：t=模板id, title=覆盖标题(可选), deps=[按标题引用上游], children=[子节点]。",
+  "version": 3,
+  "packs": [
+    {
+      "id": "plain",
+      "title": "标准五道工序",
+      "note": "最小骨架：事实层 → 剧本 → 分镜 → 提示词 → 生成。先跑起来，后面按需加节点。",
+      "tree": []
+    },
+    {
+      "id": "suspense",
+      "title": "悬疑片",
+      "note": "事实层 + 人物（身份/性格/外貌/服装）+ 世界观 + 认知层；视觉设定；元素抽取；分镜到生成。",
+      "tree": [
+        {
+          "t": "facts",
+          "children": [
+            {
+              "t": "character",
+              "children": [
+                {
+                  "t": "character-one",
+                  "children": [
+                    {
+                      "t": "identity"
+                    },
+                    {
+                      "t": "personality"
+                    },
+                    {
+                      "t": "appearance"
+                    },
+                    {
+                      "t": "costume",
+                      "children": [
+                        {
+                          "t": "costume-top"
+                        },
+                        {
+                          "t": "costume-bottom"
+                        },
+                        {
+                          "t": "costume-shoes"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "t": "worldview"
+            },
+            {
+              "t": "cognition"
+            }
+          ]
+        },
+        {
+          "t": "script",
+          "deps": [
+            "事实层",
+            "人物",
+            "世界观"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "剧本"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本",
+            "外貌",
+            "上装",
+            "下装",
+            "鞋"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scifi",
+      "title": "科幻片",
+      "note": "悬疑同骨架，事实层下加「科幻设定」（规则/边界/例外/术语）。",
+      "tree": [
+        {
+          "t": "facts",
+          "children": [
+            {
+              "t": "character",
+              "children": [
+                {
+                  "t": "character-one",
+                  "children": [
+                    {
+                      "t": "identity"
+                    },
+                    {
+                      "t": "personality"
+                    },
+                    {
+                      "t": "appearance"
+                    },
+                    {
+                      "t": "costume",
+                      "children": [
+                        {
+                          "t": "costume-top"
+                        },
+                        {
+                          "t": "costume-bottom"
+                        },
+                        {
+                          "t": "costume-shoes"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "t": "worldview"
+            },
+            {
+              "t": "scifi-setting"
+            }
+          ]
+        },
+        {
+          "t": "script",
+          "deps": [
+            "事实层",
+            "人物",
+            "世界观",
+            "科幻设定"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "剧本"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本",
+            "外貌",
+            "上装",
+            "下装",
+            "鞋"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "drama",
+      "title": "文艺片",
+      "note": "情绪与意象优先：事实层 + 人物 + 世界观 + 主题与意象；情绪曲线提前。",
+      "tree": [
+        {
+          "t": "facts",
+          "children": [
+            {
+              "t": "character",
+              "children": [
+                {
+                  "t": "character-one",
+                  "children": [
+                    {
+                      "t": "identity"
+                    },
+                    {
+                      "t": "personality"
+                    },
+                    {
+                      "t": "appearance"
+                    },
+                    {
+                      "t": "costume",
+                      "children": [
+                        {
+                          "t": "costume-top"
+                        },
+                        {
+                          "t": "costume-bottom"
+                        },
+                        {
+                          "t": "costume-shoes"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "t": "worldview"
+            }
+          ]
+        },
+        {
+          "t": "script",
+          "deps": [
+            "事实层",
+            "人物",
+            "世界观"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "剧本"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本",
+            "外貌",
+            "上装",
+            "下装",
+            "鞋"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "war",
+      "title": "战争片",
+      "note": "阵营与战局 + 时间线为必选；道具（武器）单独一支。",
+      "tree": [
+        {
+          "t": "facts",
+          "children": [
+            {
+              "t": "character",
+              "children": [
+                {
+                  "t": "character-one",
+                  "children": [
+                    {
+                      "t": "identity"
+                    },
+                    {
+                      "t": "personality"
+                    },
+                    {
+                      "t": "appearance"
+                    },
+                    {
+                      "t": "costume",
+                      "children": [
+                        {
+                          "t": "costume-top"
+                        },
+                        {
+                          "t": "costume-bottom"
+                        },
+                        {
+                          "t": "costume-shoes"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "t": "worldview"
+            },
+            {
+              "t": "factions"
+            }
+          ]
+        },
+        {
+          "t": "script",
+          "deps": [
+            "事实层",
+            "人物",
+            "世界观",
+            "阵营与战局"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "剧本"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本",
+            "外貌",
+            "上装",
+            "下装",
+            "鞋"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fantasy",
+      "title": "奇幻片",
+      "note": "力量体系（来源/代价/等级）为必选。",
+      "tree": [
+        {
+          "t": "facts",
+          "children": [
+            {
+              "t": "character",
+              "children": [
+                {
+                  "t": "character-one",
+                  "children": [
+                    {
+                      "t": "identity"
+                    },
+                    {
+                      "t": "personality"
+                    },
+                    {
+                      "t": "appearance"
+                    },
+                    {
+                      "t": "costume",
+                      "children": [
+                        {
+                          "t": "costume-top"
+                        },
+                        {
+                          "t": "costume-bottom"
+                        },
+                        {
+                          "t": "costume-shoes"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "t": "worldview"
+            },
+            {
+              "t": "power-system"
+            }
+          ]
+        },
+        {
+          "t": "script",
+          "deps": [
+            "事实层",
+            "人物",
+            "世界观",
+            "力量体系"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "剧本"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本",
+            "外貌",
+            "上装",
+            "下装",
+            "鞋"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "comedy",
+      "title": "喜剧片",
+      "note": "误会与笑点表为必选：误会怎么建、什么时候爆、怎么收。",
+      "tree": [
+        {
+          "t": "facts",
+          "children": [
+            {
+              "t": "character",
+              "children": [
+                {
+                  "t": "character-one",
+                  "children": [
+                    {
+                      "t": "identity"
+                    },
+                    {
+                      "t": "personality"
+                    },
+                    {
+                      "t": "appearance"
+                    },
+                    {
+                      "t": "costume",
+                      "children": [
+                        {
+                          "t": "costume-top"
+                        },
+                        {
+                          "t": "costume-bottom"
+                        },
+                        {
+                          "t": "costume-shoes"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "t": "worldview"
+            },
+            {
+              "t": "comedy-beat"
+            }
+          ]
+        },
+        {
+          "t": "script",
+          "deps": [
+            "事实层",
+            "人物",
+            "世界观",
+            "误会与笑点"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "剧本"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本",
+            "外貌",
+            "上装",
+            "下装",
+            "鞋"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "short-drama",
+      "title": "短剧",
+      "note": "项目总纲 → 人物/场景 → 分集与钩子 → 分集剧本 → 分镜 → 提示词 → 生成。",
+      "tree": [
+        {
+          "t": "project-brief"
+        },
+        {
+          "t": "character",
+          "children": [
+            {
+              "t": "character-one",
+              "children": [
+                {
+                  "t": "appearance"
+                },
+                {
+                  "t": "personality"
+                },
+                {
+                  "t": "costume",
+                  "children": [
+                    {
+                      "t": "costume-top"
+                    },
+                    {
+                      "t": "costume-bottom"
+                    },
+                    {
+                      "t": "costume-shoes"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "t": "drama-outline",
+          "deps": [
+            "项目总纲",
+            "人物"
+          ]
+        },
+        {
+          "t": "script-series",
+          "deps": [
+            "项目总纲",
+            "人物",
+            "分集与钩子"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "分集剧本"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本",
+            "外貌",
+            "上装",
+            "下装",
+            "鞋"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "series",
+      "title": "电视剧 / 网剧",
+      "note": "季纲 → 伏笔与回收 → 人物弧线 → 分集剧本 → 分镜 → 生成。",
+      "tree": [
+        {
+          "t": "facts",
+          "children": [
+            {
+              "t": "character",
+              "children": [
+                {
+                  "t": "character-one",
+                  "children": [
+                    {
+                      "t": "identity"
+                    },
+                    {
+                      "t": "personality"
+                    },
+                    {
+                      "t": "appearance"
+                    },
+                    {
+                      "t": "costume",
+                      "children": [
+                        {
+                          "t": "costume-top"
+                        },
+                        {
+                          "t": "costume-bottom"
+                        },
+                        {
+                          "t": "costume-shoes"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "t": "worldview"
+            }
+          ]
+        },
+        {
+          "t": "episode-outline",
+          "deps": [
+            "事实层",
+            "人物"
+          ]
+        },
+        {
+          "t": "foreshadow",
+          "deps": [
+            "季纲"
+          ]
+        },
+        {
+          "t": "script-series",
+          "deps": [
+            "季纲",
+            "伏笔与回收"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "分集剧本"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本",
+            "外貌",
+            "上装",
+            "下装",
+            "鞋"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ad",
+      "title": "广告片",
+      "note": "品牌简报 → 卖点与证据 → 创意概念 → 版本矩阵 → 分镜 → 提示词 → 生成。不做字幕、不做剪辑。",
+      "tree": [
+        {
+          "t": "brand-brief"
+        },
+        {
+          "t": "selling-points",
+          "deps": [
+            "品牌简报"
+          ]
+        },
+        {
+          "t": "creative-concept",
+          "deps": [
+            "品牌简报",
+            "卖点与证据"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "创意概念"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "documentary",
+      "title": "纪录片",
+      "note": "主题与论点 → 采访对象 → 采访提纲 → 素材清单 → 解说词 → 分镜 → 生成。不挂世界观/剧本。",
+      "tree": [
+        {
+          "t": "topic-thesis"
+        },
+        {
+          "t": "interviewees",
+          "deps": [
+            "主题与论点"
+          ]
+        },
+        {
+          "t": "interview-outline",
+          "deps": [
+            "采访对象"
+          ]
+        },
+        {
+          "t": "footage",
+          "deps": [
+            "主题与论点",
+            "采访对象"
+          ]
+        },
+        {
+          "t": "narration",
+          "deps": [
+            "主题与论点",
+            "素材清单"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "解说词",
+            "素材清单"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mv",
+      "title": "音乐 MV",
+      "note": "歌曲结构 → 视觉母题 → 卡点表 → 分镜 → 提示词 → 生成。",
+      "tree": [
+        {
+          "t": "song-structure"
+        },
+        {
+          "t": "visual-motif",
+          "deps": [
+            "歌曲结构"
+          ]
+        },
+        {
+          "t": "beat-map",
+          "deps": [
+            "歌曲结构",
+            "视觉母题"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "卡点表",
+            "视觉母题"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "corporate",
+      "title": "企业宣传片",
+      "note": "企业事实 → 受众与场合 → 结构脚本 → 解说词 → 分镜 → 生成。",
+      "tree": [
+        {
+          "t": "company-facts"
+        },
+        {
+          "t": "audience",
+          "deps": [
+            "企业事实"
+          ]
+        },
+        {
+          "t": "structure-script",
+          "deps": [
+            "企业事实",
+            "受众与场合"
+          ]
+        },
+        {
+          "t": "narration",
+          "deps": [
+            "结构脚本"
+          ]
+        },
+        {
+          "t": "storyboard",
+          "deps": [
+            "结构脚本",
+            "解说词"
+          ]
+        },
+        {
+          "t": "video-prompt",
+          "deps": [
+            "分镜脚本"
+          ]
+        },
+        {
+          "t": "video-gen",
+          "deps": [
+            "视频提示词"
+          ]
+        }
+      ]
+    }
+  ],
+  "templates": [
+    {
+      "id": "facts",
+      "title": "事实层",
+      "group": "story",
+      "feed": "up",
+      "note": "客观发生了什么：谁、在哪、何时、做了什么、怎么发生的。不含任何人的理解。",
+      "shape": {
+        "kind": "list",
+        "item": "事实",
+        "fields": [
+          {
+            "key": "who",
+            "label": "谁"
+          },
+          {
+            "key": "where",
+            "label": "哪"
+          },
+          {
+            "key": "when",
+            "label": "何时"
+          },
+          {
+            "key": "what",
+            "label": "做了什么"
+          },
+          {
+            "key": "how",
+            "label": "怎么发生的"
+          }
+        ]
+      },
+      "doctrine": "【任务】把客观发生过的事拆成条目。\n【读】上游故事/梗概。\n【写】事实层.md。\n【格式】一条事实一行，五个字段都要填。\n【规矩】只记录事实，不写理解、推测、情绪——那是认知层的事。"
+    },
+    {
+      "id": "character",
+      "title": "人物",
+      "group": "story",
+      "feed": "up",
+      "note": "只列人物名字（一条一个），小传放下游节点。",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】用一句话列清这部片有哪些人：姓名 + 一个标签（职业/关系）。\n【读】剧本或事实层。\n【写】人物.md\n【格式】纯文本，一行一个：`唐老板（便利店夜班店主）、林默（记者）`\n【规矩】这里只列名字和一句话标签。每个人的身份/性格/外貌/服装，各建一个「人物·单人」节点挂在它下游，再往下挂属性。",
+      "kind": "aggregate"
+    },
+    {
+      "id": "character-one",
+      "title": "人物·单人",
+      "note": "节点标题写人名；正文只写一句话定位",
+      "kind": "aggregate",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】这一个人是谁：**节点标题就是人名**（建好后把标题改成「唐老板」这种），正文只写一句话定位（职业/年龄/在这故事里的作用）。\n【读】人物、剧本。\n【写】工艺/<人名>.md\n【格式】纯文本，一句话；没有可写的就留空，别写「某某·单人」这种重复。\n【规矩】身份/性格/外貌/服装 挂在它下游，别写在这里；剧本没写的标〔推断〕或 TODO。"
+    },
+    {
+      "id": "identity",
+      "title": "身份",
+      "group": "story",
+      "feed": "up",
+      "note": "身份（单人）",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】写这个人的身份、职业、立场。\n【读】人物·单人节点、剧本。\n【写】本节点的 md。\n【格式】几行，每行 `标签：内容`：身份 / 职业 / 立场。\n【规矩】剧本没写的标〔推断〕或 TODO；只写这一个人。"
+    },
+    {
+      "id": "personality",
+      "title": "性格",
+      "group": "story",
+      "feed": "up",
+      "note": "性格（单人）",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】写这个人的性格关键词 + 可拍的行为习惯/口头禅。\n【读】人物·单人节点、剧本。\n【写】本节点的 md。\n【格式】几行：`关键词：` `习惯：` `口头禅：`（没有就省略）。\n【规矩】关键词要能演出来，不写\"善良\"这种空词；只写这一个人。"
+    },
+    {
+      "id": "appearance",
+      "title": "外貌",
+      "group": "story",
+      "feed": "up",
+      "note": "外貌（单人）",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】把这个人的外形写成可生成的样子。\n【读】人物·单人节点、剧本。\n【写】本节点的 md。\n【格式】几行：`年龄：` `体型：` `脸型：` `发型：` `特征：`（没有的省略）。\n【规矩】每个字段都要具体到能画出来；只写这一个人。"
+    },
+    {
+      "id": "costume",
+      "title": "服装",
+      "group": "story",
+      "feed": "up",
+      "note": "容器节点：按场合列服装；细化到上衣/下装/鞋时用子节点。",
+      "shape": {
+        "kind": "list",
+        "item": "场合",
+        "fields": [
+          {
+            "key": "scene",
+            "label": "场合"
+          },
+          {
+            "key": "top",
+            "label": "上衣"
+          },
+          {
+            "key": "bottom",
+            "label": "下装"
+          },
+          {
+            "key": "shoes",
+            "label": "鞋"
+          },
+          {
+            "key": "acc",
+            "label": "配饰"
+          }
+        ]
+      },
+      "doctrine": "【任务】按场合写**这一个人**的整套服装。\n【读】人物·单人节点、剧本。\n【写】本节点的 md。\n【格式】一条一个场合：`## 便利店夜班` + `> 场合：…` `> 上衣：…` `> 下装：…` `> 鞋：…` `> 配饰：…`\n【规矩】同一人多场合就多条；单品细节建下游 上装/下装/鞋 节点。"
+    },
+    {
+      "id": "costume-top",
+      "title": "上装",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "单品",
+        "fields": [
+          {
+            "key": "style",
+            "label": "款式"
+          },
+          {
+            "key": "color",
+            "label": "颜色"
+          },
+          {
+            "key": "material",
+            "label": "材质"
+          }
+        ]
+      },
+      "note": "上衣单品：款式/颜色/材质。",
+      "doctrine": "【任务】列**这一个人**的上装单品。\n【读】服装节点、剧本。\n【写】本节点的 md。\n【格式】一条一个单品：`## 深蓝夹克` + `> 款式：…` `> 颜色：…` `> 材质：…`\n【规矩】颜色用具体色名，材质影响光泽必须写。"
+    },
+    {
+      "id": "costume-bottom",
+      "title": "下装",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "单品",
+        "fields": [
+          {
+            "key": "style",
+            "label": "款式"
+          },
+          {
+            "key": "color",
+            "label": "颜色"
+          },
+          {
+            "key": "material",
+            "label": "材质"
+          }
+        ]
+      },
+      "note": "下装单品。",
+      "doctrine": "【任务】列**这一个人**的下装单品。\n【读】服装节点、剧本。\n【写】本节点的 md。\n【格式】一条一个单品：`## 深蓝夹克` + `> 款式：…` `> 颜色：…` `> 材质：…`\n【规矩】颜色用具体色名，材质影响光泽必须写。"
+    },
+    {
+      "id": "costume-shoes",
+      "title": "鞋",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "单品",
+        "fields": [
+          {
+            "key": "style",
+            "label": "款式"
+          },
+          {
+            "key": "color",
+            "label": "颜色"
+          }
+        ]
+      },
+      "note": "鞋单品。",
+      "doctrine": "【任务】列**这一个人**的鞋。\n【读】服装节点、剧本。\n【写】本节点的 md。\n【格式】一条一个单品：`## 短靴` + `> 款式：…` `> 颜色：…`\n【规矩】只写看得见的特征。"
+    },
+    {
+      "id": "worldview",
+      "title": "世界观",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "规则",
+        "fields": [
+          {
+            "key": "title",
+            "label": "规则",
+            "type": "line"
+          },
+          {
+            "key": "edge",
+            "label": "边界"
+          },
+          {
+            "key": "cost",
+            "label": "违反代价"
+          }
+        ]
+      },
+      "note": "世界规则 + 边界 + 违反代价。",
+      "doctrine": "【任务】写这个世界的规则。\n【读】事实层/故事。\n【写】世界观.md。\n【格式】一条规则一段，写清边界和违反代价。\n【规矩】不能自相矛盾；每条规则都要能被剧情用上。"
+    },
+    {
+      "id": "cognition",
+      "title": "认知层",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "matrix",
+        "row": "阶段",
+        "col": "人物",
+        "fields": [
+          {
+            "key": "know",
+            "label": "知道"
+          },
+          {
+            "key": "dont",
+            "label": "不知道"
+          },
+          {
+            "key": "think",
+            "label": "以为"
+          }
+        ]
+      },
+      "note": "每个阶段、每个人物知道/不知道/以为什么。",
+      "doctrine": "【任务】按阶段列每个人物知道什么。\n【读】事实层、剧本。\n【写】认知层.md。\n【格式】## 阶段 → ### 人物 → - 知道 / - 不知道 / - 以为。\n【规矩】'不知道'和'以为'必须写，悬念靠它们。"
+    },
+    {
+      "id": "art-style",
+      "title": "画风",
+      "group": "board",
+      "feed": "down",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "挂在视频提示词下面用（预设里默认不建）",
+      "doctrine": "【任务】定全片画风。\n【读】无。\n【写】画风.md。\n【格式】一句话风格 + 3 个参考片/图。\n【规矩】动画风也写在这里（线条/上色/帧率）。",
+      "role": "style"
+    },
+    {
+      "id": "color",
+      "title": "色彩",
+      "group": "board",
+      "feed": "down",
+      "shape": {
+        "kind": "list",
+        "item": "色彩",
+        "fields": [
+          {
+            "key": "title",
+            "label": "用途",
+            "type": "line"
+          },
+          {
+            "key": "value",
+            "label": "色值"
+          },
+          {
+            "key": "mood",
+            "label": "情绪"
+          }
+        ]
+      },
+      "note": "可挂在视频提示词下面用（预设里默认不建）",
+      "doctrine": "【任务】定色彩表。\n【读】画风。\n【写】色彩.md。\n【格式】一条一段：用途/色值/情绪。\n【规矩】给出可用的色值，不只写'暖色调'。",
+      "role": "style"
+    },
+    {
+      "id": "lighting",
+      "title": "光影",
+      "group": "board",
+      "feed": "down",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "可挂在视频提示词下面用（预设里默认不建）",
+      "doctrine": "【任务】定光影方案。\n【读】画风、色彩。\n【写】光影.md。\n【格式】短段落，写清光源方向与对比。\n【规矩】每场戏都能照着打光。",
+      "role": "style"
+    },
+    {
+      "id": "script",
+      "title": "剧本",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "整部片的剧本正文。",
+      "doctrine": "【任务】写完整剧本。\n【读】事实层、人物、世界观、类型节点。\n【写】剧本.md。\n【格式】场次标题 + 动作 + 对白。\n【规矩】只写用户材料里有的；推不出来的标〔推断〕。"
+    },
+    {
+      "id": "script-series",
+      "title": "分集剧本",
+      "group": "story",
+      "feed": "up",
+      "files": "剧本/*.md",
+      "note": "一集一文件。",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】按集写剧本，一集一个文件。\n【读】分集大纲/季纲、人物。\n【写】剧本/第N集.md。\n【格式】场次 + 对白。\n【规矩】每集结尾必须有钩子。"
+    },
+    {
+      "id": "scene",
+      "title": "场景",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "场景",
+        "fields": [
+          {
+            "key": "title",
+            "label": "场景",
+            "type": "line"
+          },
+          {
+            "key": "space",
+            "label": "空间结构"
+          },
+          {
+            "key": "light",
+            "label": "光线"
+          },
+          {
+            "key": "reverse",
+            "label": "正反打"
+          }
+        ]
+      },
+      "note": "场景清单：空间、光线、正打/反打。",
+      "doctrine": "【任务】从剧本里抽出场景，写清空间与光线。\n【读】剧本。\n【写】场景.md。\n【格式】一条一段，四列。\n【规矩】必须写反打关系，否则生成会穿帮。"
+    },
+    {
+      "id": "props",
+      "title": "道具",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "道具",
+        "fields": [
+          {
+            "key": "title",
+            "label": "道具",
+            "type": "line"
+          },
+          {
+            "key": "look",
+            "label": "外观"
+          },
+          {
+            "key": "use",
+            "label": "用途"
+          },
+          {
+            "key": "first",
+            "label": "首次出现"
+          }
+        ]
+      },
+      "note": "关键道具清单。",
+      "doctrine": "【任务】列出剧本里出现的道具。\n【读】剧本。\n【写】道具.md。\n【格式】一条一段。\n【规矩】只收会影响剧情或反复出现的道具。"
+    },
+    {
+      "id": "emotion-curve",
+      "title": "情绪曲线",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "seg",
+            "label": "段落/时间"
+          },
+          {
+            "key": "mood",
+            "label": "情绪"
+          },
+          {
+            "key": "level",
+            "label": "强度(1-5)",
+            "width": "80px"
+          },
+          {
+            "key": "event",
+            "label": "对应事件"
+          }
+        ]
+      },
+      "note": "段落 → 情绪 → 强度 → 事件。",
+      "doctrine": "【任务】排出全片情绪曲线。\n【读】剧本/分集。\n【写】情绪曲线.md。\n【格式】标准表格，一行一段。\n【规矩】强度要有起伏，不能一条直线。"
+    },
+    {
+      "id": "storyboard",
+      "title": "分镜脚本",
+      "group": "board",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "no",
+            "label": "镜号",
+            "width": "56px"
+          },
+          {
+            "key": "dur",
+            "label": "时长",
+            "width": "56px"
+          },
+          {
+            "key": "shot",
+            "label": "景别",
+            "width": "64px"
+          },
+          {
+            "key": "pic",
+            "label": "画面"
+          },
+          {
+            "key": "line",
+            "label": "台词"
+          },
+          {
+            "key": "sound",
+            "label": "声音"
+          }
+        ]
+      },
+      "note": "一镜一行：镜号/时长/景别/画面/台词/声音。",
+      "doctrine": "【任务】把剧本拆成镜头。\n【读】剧本、场景、道具。\n【写】分镜脚本.md。\n【格式】标准表格，一镜一行。\n【规矩】一镜只做一件事；复杂动作拆短镜头。"
+    },
+    {
+      "id": "audio-prompt",
+      "title": "音频提示词",
+      "group": "board",
+      "feed": "up",
+      "files": "音频提示词/*.md",
+      "note": "一个任务一个文件。",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】给每段台词/音效写提示词。\n【读】分镜、声音风格。\n【写】音频提示词/*.md。\n【格式】一任务一文件。\n【规矩】写清音色/语速/情绪。"
+    },
+    {
+      "id": "video-prompt",
+      "title": "视频提示词",
+      "group": "board",
+      "feed": "up",
+      "files": "视频提示词/*.md",
+      "note": "一个镜头一个文件。",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】给每个镜头写可直出的视频提示词。\n【读】分镜、画风、色彩、外貌、上装、下装、鞋、场景、道具、情绪曲线。\n【写】视频提示词/*.md。\n【格式】一镜一文件：主体+动作+场景+光影+运镜+风格。\n【规矩】引用元素节点里的描述，不要重写。"
+    },
+    {
+      "id": "video-model",
+      "title": "视频模型",
+      "group": "board",
+      "feed": "down",
+      "note": "视频模型选择：Seedance 2.5（doubao-seedance-2-5-260628）；Seedance 2.0（doubao-seedance-2-0-260128）；Seedance 2.0 fast（doubao-seedance-2-0-fast-260128）；Seedance 2.0 mini（doubao-seedance-2-0-mini-260615）",
+      "shape": {
+        "kind": "select",
+        "options": [
+          {
+            "value": "doubao-seedance-2-5-260628",
+            "label": "Seedance 2.5"
+          },
+          {
+            "value": "doubao-seedance-2-0-260128",
+            "label": "Seedance 2.0"
+          },
+          {
+            "value": "doubao-seedance-2-0-fast-260128",
+            "label": "Seedance 2.0 fast"
+          },
+          {
+            "value": "doubao-seedance-2-0-mini-260615",
+            "label": "Seedance 2.0 mini"
+          }
+        ]
+      },
+      "doctrine": "【任务】选定这部片使用的视频生成模型。\n【读】火山方舟当前可用的视频模型（画布下拉里已经列全）。\n【写】工艺/视频模型.md（在画布上选，宿主写入一行模型 id）\n【格式】一行，模型 id 原样，例如 doubao-seedance-2-5-260628。\n【规矩】一部片只选一个；选定后，下游视频提示词按这个模型的写法写（先查 filmflow_model_guide）。不要在这里写提示词正文。"
+    },
+    {
+      "id": "image-model",
+      "title": "图片模型",
+      "group": "board",
+      "feed": "down",
+      "note": "图片模型选择：Seedream 5.0 pro（doubao-seedream-5-0-pro-260628）；Seedream 5.0 lite（doubao-seedream-5-0-260128）；Seedream 5.0 flash（doubao-seedream-5-0-flash-260915）；Seedream 4.5（doubao-seedream-4-5-251128）；Seedream 4.0（doubao-seedream-4-0-250828）",
+      "shape": {
+        "kind": "select",
+        "options": [
+          {
+            "value": "doubao-seedream-5-0-pro-260628",
+            "label": "Seedream 5.0 pro"
+          },
+          {
+            "value": "doubao-seedream-5-0-260128",
+            "label": "Seedream 5.0 lite"
+          },
+          {
+            "value": "doubao-seedream-5-0-flash-260915",
+            "label": "Seedream 5.0 flash"
+          },
+          {
+            "value": "doubao-seedream-4-5-251128",
+            "label": "Seedream 4.5"
+          },
+          {
+            "value": "doubao-seedream-4-0-250828",
+            "label": "Seedream 4.0"
+          }
+        ]
+      },
+      "doctrine": "【任务】选定这部片使用的图片生成模型（关键帧、参考图、视觉设定图）。\n【读】火山方舟当前可用的图片模型。\n【写】工艺/图片模型.md（画布上选，宿主写入一行模型 id）\n【格式】一行，模型 id 原样。\n【规矩】一部片只选一个；下游图片提示词按它写（先查 filmflow_model_guide）。"
+    },
+    {
+      "id": "audio-model",
+      "title": "音频模型",
+      "group": "board",
+      "feed": "down",
+      "note": "音频模型选择（API 暂未接入）：豆包音频生成模型 1.0（Seed-Audio 1.0）（seed-audio-1.0）",
+      "shape": {
+        "kind": "select",
+        "options": [
+          {
+            "value": "seed-audio-1.0",
+            "label": "豆包音频生成模型 1.0（Seed-Audio 1.0）"
+          }
+        ]
+      },
+      "doctrine": "【任务】选定这部片使用的音频生成模型。\n【读】火山方舟音频模型（目前只有豆包音频生成模型 1.0，API 尚未接入）。\n【写】工艺/音频模型.md（画布上选）\n【格式】一行，模型标识原样。\n【规矩】音频生成暂未接入；这个节点先记录选择，不要把\"已接入\"写进承诺。"
+    },
+    {
+      "id": "video-gen",
+      "title": "生成视频",
+      "group": "board",
+      "feed": "up",
+      "kind": "media",
+      "mediaType": "video",
+      "note": "媒体节点：用户点按钮才生成。",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】按视频提示词生成镜头。\n【读】视频提示词。\n【写】素材库。\n【格式】一镜一个媒体节点。\n【规矩】只有用户能点生成；失败把厂商原文报出来。"
+    },
+    {
+      "id": "scifi-setting",
+      "title": "科幻设定",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "设定",
+        "fields": [
+          {
+            "key": "title",
+            "label": "术语/规则",
+            "type": "line"
+          },
+          {
+            "key": "edge",
+            "label": "边界"
+          },
+          {
+            "key": "except",
+            "label": "例外"
+          }
+        ]
+      },
+      "note": "科技规则、边界、例外、术语表。",
+      "doctrine": "【任务】写科幻设定。\n【读】世界观。\n【写】科幻设定.md。\n【格式】一条一段。\n【规矩】术语全片统一；不自洽的设定不要写。"
+    },
+    {
+      "id": "factions",
+      "title": "阵营与战局",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "阵营",
+        "fields": [
+          {
+            "key": "title",
+            "label": "阵营",
+            "type": "line"
+          },
+          {
+            "key": "goal",
+            "label": "目标"
+          },
+          {
+            "key": "resource",
+            "label": "资源"
+          },
+          {
+            "key": "when",
+            "label": "关键时间"
+          }
+        ]
+      },
+      "note": "谁打谁、目标、资源、时间线。",
+      "doctrine": "【任务】列阵营与战局。\n【读】世界观、时间线。\n【写】阵营与战局.md。\n【格式】一条一段。\n【规矩】每个阵营必须有目标和代价。"
+    },
+    {
+      "id": "power-system",
+      "title": "力量体系",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "力量",
+        "fields": [
+          {
+            "key": "title",
+            "label": "力量",
+            "type": "line"
+          },
+          {
+            "key": "from",
+            "label": "来源"
+          },
+          {
+            "key": "cost",
+            "label": "代价"
+          },
+          {
+            "key": "rank",
+            "label": "等级"
+          }
+        ]
+      },
+      "note": "来源、代价、等级。",
+      "doctrine": "【任务】写力量体系。\n【读】世界观。\n【写】力量体系.md。\n【格式】一条一段。\n【规矩】必须有代价，否则没有冲突。"
+    },
+    {
+      "id": "comedy-beat",
+      "title": "误会与笑点",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "mis",
+            "label": "误会"
+          },
+          {
+            "key": "set",
+            "label": "怎么建"
+          },
+          {
+            "key": "punch",
+            "label": "爆点"
+          },
+          {
+            "key": "end",
+            "label": "怎么收"
+          }
+        ]
+      },
+      "note": "误会怎么建、什么时候爆、怎么收。",
+      "doctrine": "【任务】排误会与笑点。\n【读】剧本。\n【写】误会与笑点.md。\n【格式】标准表格。\n【规矩】每个误会必须有收法，不能烂尾。"
+    },
+    {
+      "id": "project-brief",
+      "title": "项目总纲",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "受众/平台/档位/一句话卖点。",
+      "doctrine": "【任务】写项目总纲。\n【读】用户给的需求。\n【写】项目总纲.md。\n【格式】受众、平台、档位、一句话卖点。\n【规矩】只能有一句话卖点。"
+    },
+    {
+      "id": "drama-outline",
+      "title": "分集与钩子",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "ep",
+            "label": "集",
+            "width": "56px"
+          },
+          {
+            "key": "event",
+            "label": "主事件"
+          },
+          {
+            "key": "hook",
+            "label": "钩子"
+          },
+          {
+            "key": "twist",
+            "label": "反转"
+          }
+        ]
+      },
+      "note": "一集一行：主事件、结尾钩子、反转。",
+      "doctrine": "【任务】排分集与钩子。\n【读】项目总纲、人物。\n【写】分集与钩子.md。\n【格式】标准表格，一集一行。\n【规矩】每集必须有钩子，没有钩子的集删掉或合并。"
+    },
+    {
+      "id": "episode-outline",
+      "title": "季纲",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "ep",
+            "label": "集",
+            "width": "56px"
+          },
+          {
+            "key": "event",
+            "label": "主事件"
+          },
+          {
+            "key": "arc",
+            "label": "人物弧"
+          },
+          {
+            "key": "hook",
+            "label": "钩子"
+          }
+        ]
+      },
+      "note": "整季总控：每集主事件、人物弧、钩子。",
+      "doctrine": "【任务】排季纲。\n【读】事实层、人物。\n【写】季纲.md。\n【格式】一集一行。\n【规矩】每集有钩子，整季有一条主线。"
+    },
+    {
+      "id": "foreshadow",
+      "title": "伏笔与回收",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "seed",
+            "label": "伏笔"
+          },
+          {
+            "key": "put",
+            "label": "埋设集",
+            "width": "72px"
+          },
+          {
+            "key": "pay",
+            "label": "回收集",
+            "width": "72px"
+          },
+          {
+            "key": "state",
+            "label": "状态",
+            "width": "64px"
+          }
+        ]
+      },
+      "note": "跨集一致性：埋在哪、收在哪、收没收。",
+      "doctrine": "【任务】维护伏笔表。\n【读】季纲、分集剧本。\n【写】伏笔与回收.md。\n【格式】标准表格。\n【规矩】每条伏笔必须有回收集，或明确标'不收'。"
+    },
+    {
+      "id": "brand-brief",
+      "title": "品牌简报",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "品牌/产品/人群/单一诉求/禁忌。",
+      "doctrine": "【任务】整理客户 brief。\n【读】用户给的材料。\n【写】品牌简报.md。\n【格式】品牌、产品、人群、单一诉求、禁忌。\n【规矩】单一诉求只能有一句。"
+    },
+    {
+      "id": "selling-points",
+      "title": "卖点与证据",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "claim",
+            "label": "卖点"
+          },
+          {
+            "key": "proof",
+            "label": "证据"
+          },
+          {
+            "key": "shot",
+            "label": "可拍画面"
+          }
+        ]
+      },
+      "note": "卖点 → 证据 → 画面。",
+      "doctrine": "【任务】列卖点与证据。\n【读】品牌简报。\n【写】卖点与证据.md。\n【格式】标准表格。\n【规矩】每条卖点必须有证据和画面，缺一就不算数。"
+    },
+    {
+      "id": "creative-concept",
+      "title": "创意概念",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "一句话概念 + 记忆点。",
+      "doctrine": "【任务】写创意概念。\n【读】品牌简报、卖点与证据。\n【写】创意概念.md。\n【格式】一句话概念 + 记忆点 + 为什么成立。\n【规矩】一句话说不清就不是好概念。"
+    },
+    {
+      "id": "topic-thesis",
+      "title": "主题与论点",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "要证明什么、反方是什么。",
+      "doctrine": "【任务】定主题与论点。\n【读】用户给的选题。\n【写】主题与论点.md。\n【格式】论点 + 反方 + 证据方向。\n【规矩】论点必须可被事实检验。"
+    },
+    {
+      "id": "interviewees",
+      "title": "采访对象",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "人物",
+        "fields": [
+          {
+            "key": "title",
+            "label": "姓名",
+            "type": "line"
+          },
+          {
+            "key": "who",
+            "label": "身份"
+          },
+          {
+            "key": "why",
+            "label": "为什么是他"
+          }
+        ]
+      },
+      "note": "采访名单与理由。",
+      "doctrine": "【任务】列采访对象。\n【读】主题与论点。\n【写】采访对象.md。\n【格式】一条一段。\n【规矩】每个人必须能证明论点的一部分。"
+    },
+    {
+      "id": "interview-outline",
+      "title": "采访提纲",
+      "group": "story",
+      "feed": "up",
+      "files": "采访/*.md",
+      "note": "一人一份问题清单。",
+      "shape": {
+        "kind": "text"
+      },
+      "doctrine": "【任务】给每个采访对象写提纲。\n【读】采访对象、主题与论点。\n【写】采访/姓名.md。\n【格式】一人一文件，8–15 个问题。\n【规矩】问题要开放、不要诱导。"
+    },
+    {
+      "id": "footage",
+      "title": "素材清单",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "item",
+            "label": "素材"
+          },
+          {
+            "key": "from",
+            "label": "来源"
+          },
+          {
+            "key": "use",
+            "label": "用途"
+          },
+          {
+            "key": "right",
+            "label": "版权状态"
+          }
+        ]
+      },
+      "note": "拍到什么、来源、用途、版权。",
+      "doctrine": "【任务】列素材清单。\n【读】主题与论点、采访对象。\n【写】素材清单.md。\n【格式】标准表格。\n【规矩】每条必须有版权状态。"
+    },
+    {
+      "id": "narration",
+      "title": "解说词",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "旁白。",
+      "doctrine": "【任务】写解说词。\n【读】主题与论点、素材清单。\n【写】解说词.md。\n【格式】按段落分。\n【规矩】解说不能重复画面已经说清的事。"
+    },
+    {
+      "id": "song-structure",
+      "title": "歌曲结构",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "seg",
+            "label": "段落"
+          },
+          {
+            "key": "time",
+            "label": "起止",
+            "width": "90px"
+          },
+          {
+            "key": "mood",
+            "label": "情绪"
+          },
+          {
+            "key": "pic",
+            "label": "画面提示"
+          }
+        ]
+      },
+      "note": "前奏/主歌/副歌/桥/尾。",
+      "doctrine": "【任务】拆歌的结构。\n【读】歌曲文件/歌词。\n【写】歌曲结构.md。\n【格式】标准表格。\n【规矩】时间以秒计，必须连续。"
+    },
+    {
+      "id": "beat-map",
+      "title": "卡点表",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "time",
+            "label": "时间",
+            "width": "72px"
+          },
+          {
+            "key": "beat",
+            "label": "节拍",
+            "width": "56px"
+          },
+          {
+            "key": "act",
+            "label": "动作"
+          },
+          {
+            "key": "shot",
+            "label": "镜头"
+          }
+        ]
+      },
+      "note": "哪个拍子对应哪个动作。",
+      "doctrine": "【任务】排卡点。\n【读】歌曲结构。\n【写】卡点表.md。\n【格式】标准表格。\n【规矩】卡点要落在重拍上。"
+    },
+    {
+      "id": "visual-motif",
+      "title": "视觉母题",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "反复出现的意象。",
+      "doctrine": "【任务】定视觉母题。\n【读】歌曲结构。\n【写】视觉母题.md。\n【格式】一两句话。\n【规矩】母题必须能反复出现且不腻。"
+    },
+    {
+      "id": "company-facts",
+      "title": "企业事实",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "list",
+        "item": "事实",
+        "fields": [
+          {
+            "key": "title",
+            "label": "事实",
+            "type": "line"
+          },
+          {
+            "key": "data",
+            "label": "数据"
+          },
+          {
+            "key": "source",
+            "label": "来源"
+          }
+        ]
+      },
+      "note": "可核实的数据/资质/案例。",
+      "doctrine": "【任务】收集可核实的事实。\n【读】用户给的材料。\n【写】企业事实.md。\n【格式】一条一段。\n【规矩】每条必须有来源，查不到的就删。"
+    },
+    {
+      "id": "audience",
+      "title": "受众与场合",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "谁看、在哪看、看完做什么。",
+      "doctrine": "【任务】写受众与场合。\n【读】企业事实。\n【写】受众与场合.md。\n【格式】谁看/在哪看/看完的动作。\n【规矩】必须写出一个具体动作。"
+    },
+    {
+      "id": "structure-script",
+      "title": "结构脚本",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "table",
+        "columns": [
+          {
+            "key": "seg",
+            "label": "段落"
+          },
+          {
+            "key": "dur",
+            "label": "时长",
+            "width": "64px"
+          },
+          {
+            "key": "what",
+            "label": "内容"
+          },
+          {
+            "key": "goal",
+            "label": "目的"
+          }
+        ]
+      },
+      "note": "按段落功能组织：开场/痛点/方案/证据/CTA。",
+      "doctrine": "【任务】排结构脚本。\n【读】企业事实、受众与场合。\n【写】结构脚本.md。\n【格式】标准表格。\n【规矩】每段必须有目的，没有目的的段删掉。"
+    },
+    {
+      "id": "style",
+      "title": "风格",
+      "group": "board",
+      "feed": "down",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "画面或声音的总风格锚点（可挂在提示词节点下）",
+      "doctrine": "【任务】定这部片（或这一条提示词）的风格锚点：一句话风格 + 3 个参考片/图。\n【读】无（或所在的提示词节点）。\n【写】本节点的 md。\n【格式】一句话风格 + 参考；动画的线条/上色也写在这里。\n【规矩】只写能被生成照着做的特征，不写\"高级感\"这种空词。",
+      "role": "style"
+    },
+    {
+      "id": "media-image",
+      "title": "图片节点",
+      "group": "board",
+      "feed": "up",
+      "kind": "media",
+      "mediaType": "image",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "媒体节点（图）：用户点按钮才生成。",
+      "doctrine": "【任务】按上游提示词出静帧/角色图/场景图。\n【读】上游提示词或元素节点。\n【写】素材库。\n【格式】一个任务一个媒体节点。\n【规矩】只有用户能点生成。"
+    },
+    {
+      "id": "media-audio",
+      "title": "音频节点",
+      "group": "board",
+      "feed": "up",
+      "kind": "media",
+      "mediaType": "audio",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "媒体节点（音频）：用户点按钮才生成。",
+      "doctrine": "【任务】按音频提示词出配音/音效。\n【读】音频提示词。\n【写】素材库。\n【格式】一个任务一个媒体节点。\n【规矩】只有用户能点生成。"
+    },
+    {
+      "id": "blank",
+      "title": "空白工序",
+      "group": "story",
+      "feed": "up",
+      "shape": {
+        "kind": "text"
+      },
+      "note": "只有脚手架，具体干什么要自己写清楚。",
+      "doctrine": "【任务】TBD —— 一句话说清这一步要产出什么。\n【读】TBD\n【写】TBD\n【格式】TBD\n【规矩】只改需要改的部分，其余一字不动。"
+    }
+  ]
+}

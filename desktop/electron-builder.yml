@@ -1,0 +1,35 @@
+asar: false
+# 用本机 node_modules 里的 electron 解包目录，避免再下载/解压（2026-10-28：C 盘只剩 200MB，下载后卡住）
+electronDist: node_modules/electron/dist
+npmRebuild: false
+appId: com.filmflow.desktop
+productName: FilmFlow
+executableName: FilmFlow
+copyright: FilmFlow
+directories:
+  output: dist
+  buildResources: build
+files:
+  - main.js
+  - package.json
+extraResources:
+  - from: runtime
+    to: runtime
+  - from: standalone
+    to: standalone
+    filter:
+      - "**/*"
+      - "!logs/**"
+      - "!retired/**"
+      - "!dsh-home/sessions/**"
+      - "!dsh-home/storages/**"
+      - "!dsh-home/.credentials.yaml"
+      - "!**/*.bak*"
+win:
+  artifactName: FilmFlow-Portable-${version}.exe
+  target:
+    - target: portable
+      arch:
+        - x64
+portable:
+  requestExecutionLevel: user

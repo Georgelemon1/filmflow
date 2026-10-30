@@ -1,0 +1,19 @@
+{
+  "name": "dsh-filmflow-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "片场的浏览器半边：在 DSH 官方 Web UI 里加一块「工序画布」主面板（不改对话面板）",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  }
+}

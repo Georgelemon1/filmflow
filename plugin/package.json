@@ -1,0 +1,26 @@
+{
+  "name": "dsh-filmflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "片场 —— 一部片的工序思维导图工作台：工序树 / 正文就地编辑（分形态）/ 依赖过期追踪 / 给 Agent 的四个工具。",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  },
+  "meta": {
+    "title": "片场",
+    "description": "工序思维导图：点节点就地改正文（该表格就表格、该多栏就多栏），⚠ 标出上游改过、可能已经不对的节点，Agent 按它干活。"
+  },
+  "license": "MIT"
+}

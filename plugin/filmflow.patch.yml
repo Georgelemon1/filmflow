@@ -1,0 +1,484 @@
+# ⚠️ 这个文件是**生成**的，不要手改 —— 改 tools/build-profile.mjs 后重跑。
+#
+# 生成器：plugins/dsh-filmflow/tools/build-profile.mjs
+# 人格源：plugins/dsh-filmflow/CONSTITUTION.md
+#
+# 片场 = **一个普通 DSH**
+#        + 工序画布（客户端插件）
+#        + 八把工序工具（宿主插件）
+#        + agent 的「上网 + 文件读写」（片场自己的 filmflow_read / write / web）
+#        - 与拍片无关的官方分区（含 shell / 技能 / 记忆 / 派生）
+#
+# 用户 2026-10-20 定的开发逻辑（原话）：
+#   「给一个普通的 dsh 加上一些特定的功能，然后再去掉一些特定的功能，
+#     如片厂中用户与 agent 的交互框就应该是 dsh 原有的，
+#     甚至还去掉了一些如侧边栏之类的功能，
+#     而不是在某个程序上『再加上一个类似于 dsh 的会话框』。」
+#
+# ⇒ 对话、输入框、工具卡、思考链、流式、模型设置、API Key、深色主题 ——
+#   **全部是 DSH 官方那一套**，这里只是把它们组合起来、剪掉不需要的。
+
+# ─── 加：宿主半边（/filmflow/* 路由 + 八把工序工具）───────────────────
+#
+# ⚠️ __FF_ENTRY__ / __FF_CLIENT__ 是**占位符**，不是真实路径（含引号，替换时整体替掉）。
+#    这个文件只做模板；启动器（standalone/server.mjs）在运行时把它们换成
+#    "片场插件目录在这台机器上的绝对路径"，另写到 dsh-home/runtime.patch.yml 再交给 dsh。
+#    理由：插件目录在开发机和工作机上不同（甚至不在一个盘符），
+#    写死绝对路径的包**一拷到别的机器就跑不起来** —— 这是自己给自己挖的坑。
+- insert:
+    - id: filmflow
+      name: __FF_ENTRY__
+      config:
+        roots: !!js (process.env.FILMFLOW_ROOTS || ((process.env.USERPROFILE || process.env.HOME || '.') + '/films')).split(';')
+
+    # 加：浏览器半边（官方 main 槽里的「工序」画布 + filmflow_propose 的提案卡）
+    # 它的宿主半边还负责把片子目录登记成 DSH 的工作区（否则左边栏会显示一个
+    # 叫「默认工作区」的空目录 —— 见 client-plugin/index.js 的注释）。
+    - id: filmflow-ui
+      name: __FF_CLIENT__
+      config:
+        workspace: !!js (process.env.FILMFLOW_ROOTS || ((process.env.USERPROFILE || process.env.HOME || '.') + '/films')).split(';')[0]
+        # 左边栏显示的名字。目录名常常是英文的，界面上要是中文
+        title: 片库
+
+# ─── 加：agent 的人格（官方 preset 机制）──────────────────────────────
+#
+# 为什么是 preset 而不是往系统提示里拼字符串：
+#   官方在 0.2 把 agent 的能力收进了 preset（每个会话按 preset 装配工具与人格）。
+#   用它意味着**片场没有自己的一套装配代码**，人格、工具、上下文都走官方渠道。
+#
+# 这个 preset 只挂时间上下文（人格由插件 setup 注册）。
+#   ⇒ **没有** bash / pwsh（命令行）、skill（技能库）、kb（知识库）、
+#      session（历史会话）、subagent / workflow（派生）
+#   ⇒ 文件读写与上网**不靠官方工具**（实测进不了 agent 的可见表），
+#      改成片场自己的 filmflow_read / filmflow_write / filmflow_web：
+#      写被宿主限制在本片目录、不许碰 .film/；shell 一律不给。
+#   ⇒ 节点正文的改动仍只走 propose（语义约束，见 CONSTITUTION §一 / §六）
+- insert:
+    - id: preset-filmflow
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: filmflow
+        name: 片场
+        description: 片场里的制作助手：按工序图干活，改内容必须先提案
+        order: 0
+        plugins:
+          # 人格不放在 preset 里 —— 由插件在 setup(agentCtx) 里注册
+          # （deployment:persona-prefix, complete）。preset 只留时间上下文。
+          # 文件读写 / 上网**不挂这里**：实测 preset 子插件在 setup 之后才到，
+          # 不可靠；改挂 profile 级（见 PRUNE 注释）。
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+
+
+# 默认用它，并且不给用户切回「标准模式」——片场里只有一种 agent。
+- id: agent-preset-registry
+  config:
+    default: filmflow
+
+- id: preset-standard
+  disabled: true
+
+# 钉住界面语言 = 中文。
+#
+# 官方默认是「跟随浏览器」（locale 插件的 config.preference 留空就是这样），
+# 于是同一份片场装到一台英文系统上，整个界面就变成英文。
+# 片场是给中文剧组用的，不跟随系统 —— 直接钉死。
+# （LOCALE_IDS 只有 'zh' / 'en' 两个内置值，见 dsh-client-locale 的类型声明。）
+- id: locale
+  config:
+    preference: zh
+
+# ─── 减：与拍片无关的官方分区 ─────────────────────────────────────────
+#
+# 官方左边栏整列（新会话、工作区树、会话列表、按时间分组）—— 片场由自己的 56px 控制条占这个槽：一个项目只绑一个会话，不需要会话列表（用户 2026-10-20：不要会话框旁边的项目选择侧边栏）
+- id: ui-sidebar
+  disabled: true
+
+# 插件市场/管理页 —— 片场不面向"给用户装插件"，装上就能拍片
+- id: ui-plugin-manager
+  disabled: true
+
+# 设置里的「内置插件」分区（同上）
+- id: ui-settings-plugins
+  disabled: true
+
+# 设置里的「插件清单」（同上）
+- id: ui-settings-plugin-inventory
+  disabled: true
+
+# 「自动化任务」—— 定时提醒对拍片是噪音
+- id: ui-schedule
+  disabled: true
+
+# 上一条的宿主服务（侧栏入口由 UI 半边注册，两个一起去掉）
+- id: schedule
+  disabled: true
+
+# 后台作业列表 —— 片场 agent 没有作业类工具，这个入口永远空着
+- id: ui-jobs
+  disabled: true
+
+# 「轨迹」页 —— 那是给调试 agent 的人看的，导演不需要
+- id: ui-trajectory
+  disabled: true
+
+# 子 agent 控制 —— 片场不派子 agent
+- id: ui-subagent
+  disabled: true
+
+# 工作流运行卡 —— 片场不用 workflow
+- id: ui-workflow-run
+  disabled: true
+
+# Cordis 检查面板 —— 给写插件的人看的
+- id: ui-cordis
+  disabled: true
+
+# 计划模式入口 —— 片场的"先问再做"由提案卡承担，不用另一套计划模式
+- id: ui-plan
+  disabled: true
+
+# 上一条的宿主插件
+- id: plan-mode
+  disabled: true
+
+# 目标条 —— 片场一次只推一道工序，不需要长期目标机制
+- id: ui-goal
+  disabled: true
+
+# 上一条的 /goal 指令
+- id: command-goal
+  disabled: true
+
+# 上一条的 goal 工具
+- id: tool-goal
+  disabled: true
+
+# 「用其他应用打开」—— 片场里没有要外部打开的文件
+- id: ui-open-in-app
+  disabled: true
+
+# 点赞/点踩+反馈弹窗 —— 内部模板，不收集反馈
+- id: ui-message-feedback
+  disabled: true
+
+# 新会话空白页上的「片场 ⌄」预设切换 chip —— 片场只有一个人格（CONSTITUTION.md），没有可切的东西，留着只会让人以为能换（用户 2026-10-21：会话框不要预设切换功能）
+- id: ui-agent-preset
+  disabled: true
+
+# 右侧栏的终端页 —— 片场不碰命令行
+- id: ui-sidebar-terminal
+  disabled: true
+
+# 右侧栏的文件树 —— 不碰素材（用户 2026-10-20 明确定位）
+- id: ui-sidebar-files
+  disabled: true
+
+# 右侧栏的内嵌浏览器 —— 同上
+- id: ui-sidebar-browser
+  disabled: true
+
+# 右侧栏的文档预览 —— 同上，片场不看素材
+- id: ui-sidebar-documentpreview
+  disabled: true
+
+# 命令行 shell —— 用户 2026-10-28：完整 shell 会把片厂搞坏
+- id: tool-bash
+  disabled: true
+
+# 同上（pwsh 版）；有它就能绕过提案闸门直接改任何文件
+- id: tool-pwsh
+  disabled: true
+
+# 官方 fs 工具 —— 换成片场自己的 filmflow_read / filmflow_write
+- id: tool-fs
+  disabled: true
+
+# 官方检索工具 —— 同上（读用 filmflow_read，查用 filmflow_board）
+- id: tool-fs-search
+  disabled: true
+
+# 官方 web 工具 —— 换成片场自己的 filmflow_web（ctx.web 服务保留）
+- id: tool-web
+  disabled: true
+
+# 工作流工具 —— 片场不用 workflow
+- id: tool-workflow
+  disabled: true
+
+# 技能工具 —— 技能跨会话/跨项目加载，属"跨任务"，用户明确不要
+- id: tool-skill
+  disabled: true
+
+# 定时任务工具 —— 同上（配 ui-schedule/schedule 一起砍）
+- id: tool-schedule
+  disabled: true
+
+# 后台作业工具 —— 片场没有作业
+- id: tool-jobs
+  disabled: true
+
+# 待办工具 —— 工序图就是待办，不需要第二套
+- id: tool-todo
+  disabled: true
+
+# present 工具 —— 片场不出文件，产物是片子里的文档
+- id: tool-presentation
+  disabled: true
+
+# ask_user 工具 —— 问问题走普通对话
+- id: tool-ask-user
+  disabled: true
+
+# Cordis 自检工具 —— 给插件作者用的
+- id: tool-cordis
+  disabled: true
+
+# 插件管理工具 —— 同上
+- id: tool-plugin-manager
+  disabled: true
+
+# 插件市场工具 —— 同上
+- id: tool-plugin-market
+  disabled: true
+
+# 切工作目录工具 —— agent 的 cwd 必须钉在这部片，否则文件读写飘走
+- id: tool-working-directory
+  disabled: true
+
+# 子 agent 工具 —— 片场不派子 agent
+- id: tool-subagent
+  disabled: true
+
+# 同上
+- id: tool-subagent-control
+  disabled: true
+
+# 同上
+- id: tool-subagent-fork
+  disabled: true
+
+# 同上
+- id: tool-subagent-list-agents
+  disabled: true
+
+# 同上
+- id: subagent-fork-in-process
+  disabled: true
+
+# 同上
+- id: subagent-spawn-in-process
+  disabled: true
+
+# 同上
+- id: subagent-model-selection-settings
+  disabled: true
+
+# 委派机制 —— 同上
+- id: delegation
+  disabled: true
+
+# 工作流运行时 —— 片场不用
+- id: workflow-ptc
+  disabled: true
+
+# PTC 运行时 —— 片场不用
+- id: ptc
+  disabled: true
+
+# 同上
+- id: ptc-runtime
+  disabled: true
+
+# PTC 预设 —— 片场只有 filmflow 一个人格
+- id: preset-ptc
+  disabled: true
+
+# Cordis 预设 —— 同上
+- id: preset-cordis
+  disabled: true
+
+# 标准预设 —— 同上（filmflow 是唯一默认）
+- id: preset-standard
+  disabled: true
+
+# 最小预设 —— 同上
+- id: preset-minimal
+  disabled: true
+
+# 最小基础设施组合 —— filmflow 预设自带
+- id: minimal
+  disabled: true
+
+# 标准组合 —— 同上
+- id: standard
+  disabled: true
+
+# 计划机制 —— 片场的"先问再做"由提案卡承担
+- id: planning
+  disabled: true
+
+# 目标机制 —— 片场一次只推一道工序
+- id: goal
+  disabled: true
+
+# 同上
+- id: goal-round-driver
+  disabled: true
+
+# 定时任务服务 —— 片场不需要
+- id: schedule
+  disabled: true
+
+# 作业服务 —— 同上
+- id: jobs
+  disabled: true
+
+# 同上
+- id: job-controller
+  disabled: true
+
+# 技能服务 —— 片场没有技能库
+- id: skill
+  disabled: true
+
+# 同上
+- id: skill-filesystem
+  disabled: true
+
+# 技能侧栏 —— 同上
+- id: ui-skill
+  disabled: true
+
+# 提问卡 —— ask_user 工具已砍，永远不出现
+- id: ui-user-questions
+  disabled: true
+
+# 同上（宿主半边）
+- id: user-questions
+  disabled: true
+
+# 产品分析 —— 内部模板，不上报数据
+- id: product-analytics
+  disabled: true
+
+# 桌面端遥测 —— 同上
+- id: desktop-product-telemetry
+  disabled: true
+
+# OpenTelemetry —— 同上
+- id: otel
+  disabled: true
+
+# 会话遥测 —— 同上
+- id: session-telemetry-otel
+  disabled: true
+
+# 消息反馈上报 —— 同上
+- id: message-feedback
+  disabled: true
+
+# 反馈指令 —— 同上
+- id: command-feedback
+  disabled: true
+
+# bash 终端 —— 同上
+- id: terminal-bash
+  disabled: true
+
+# pwsh 终端 —— 同上
+- id: terminal-pwsh
+  disabled: true
+
+# 常驻 bash —— 片上不需要，pwsh 那个留着就够了
+- id: persistent-bash
+  disabled: true
+
+# bash 沙箱 —— 没有 bash 就没有它
+- id: bash-sandbox
+  disabled: true
+
+# pwsh 沙箱 —— 同上
+- id: pwsh-sandbox
+  disabled: true
+
+# 插件管理器 —— 片场不面向"装插件"
+- id: plugin-manager
+  disabled: true
+
+# 插件清单 —— 同上
+- id: plugin-inventory
+  disabled: true
+
+# 同上
+- id: plugin-package-inventory-deepseek
+  disabled: true
+
+# 快捷键表界面 —— 片场只有两个页面，用不上
+- id: ui-shortcuts
+  disabled: true
+
+# 热更新 —— 开发期功能，交付版不需要
+- id: hmr
+  disabled: true
+
+# 客户端热更新 —— 同上
+- id: client-hmr
+  disabled: true
+
+# 「用其他应用打开」—— 片场里没有要外部打开的文件
+- id: ui-open-in-app
+  disabled: true
+
+# 上一条的宿主半边
+- id: open-in-app
+  disabled: true
+
+# Office 转 PDF —— 片场不产出这类文件
+- id: office-to-pdf
+  disabled: true
+
+# 图片卸载 —— 片场不管素材
+- id: image-offload
+  disabled: true
+
+# 输入框的 + 附件按钮 —— agent 没有附件工具，传了也用不上
+- id: ui-attachment
+  disabled: true
+
+# 工作区文件视图 —— 片场不翻文件
+- id: workspace-files
+  disabled: true
+
+# 改动审阅 —— 同上
+- id: workspace-changes
+  disabled: true
+
+# MCP 资源 —— 片场不接 MCP
+- id: mcp-resources
+  disabled: true
+
+# 另一个模型供应商（pi-ai）—— A/O 两条路都留，和主 DSH 一致
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      deepseek:
+        apiKeyEnv: DEEPSEEK_API_KEY
+
+# 会话统计页 —— 导演不看这个
+- id: session-stats
+  disabled: true
+
+# 会话日志下载 —— 片场不出日志文件
+- id: session-log-download
+  disabled: true
+
+# 交付物侧栏 —— 片场右手边永远是官方会话，没有侧栏
+- id: ui-deliverables
+  disabled: true
+
+# 空会话页的品牌标 —— 片场第一页是自己的项目菜单，用不到
+- id: ui-brand-official
+  disabled: true

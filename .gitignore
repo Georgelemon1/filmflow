@@ -1,0 +1,32 @@
+# 依赖与构建产物
+node_modules/
+dist/
+runtime/
+standalone/runtime/
+*.exe
+*.7z
+*.asar
+
+# 本机数据 / 凭据（绝不能进仓库）
+.film/
+films/
+user-templates.json
+.credentials.yaml
+credentials*
+config.json
+.env
+*.token
+
+# 备份 / 临时 / 日志
+*.bak
+*.bak-*
+*.bak_*
+*.log
+*.tmp
+.tmp/
+tmp/
+temp/
+
+# 截图里可能带本机信息，只允许 docs/ 下人工挑选过的
+tools/*.png
+shot-*.png
