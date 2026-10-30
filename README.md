@@ -38,13 +38,16 @@ agent 不在天空里，它在这张图上干活：看板 → 读节点 → 提�
 
 ## 快速开始
 
-### 方式一：直接用发布包（Windows）
+### 方式一：自行打包（Windows，推荐给最终用户）
 
-到 [Releases](https://github.com/Georgelemon1/filmflow/releases) 下载便携包，解压后运行 `FilmFlow.exe`，
-首次启动会在 `%LOCALAPPDATA%\FilmFlow` 建数据目录。然后在「API 设置」里填：
+本仓库**不附带**现成的便携包（DSH 运行时约 400MB，且发布包里不应带任何人的 API Key）。
+打包方式：
 
-- **Agent**：DeepSeek API Key（`sk-…`）、Base URL `https://api.deepseek.com/anthropic`、模型 `deepseek-flash`；
-- **AIGC**：火山方舟 API Key（`ark-…`）、豆包语音 API Key（音频用，可选）。
+1. 准备 DSH 运行时目录（含 `node_modules/@deepseek-ai/dsh` 和 `node.exe`）；
+2. 把 `plugin/` 放到 `standalone/plugin/`，`plugin/standalone/server.mjs` 放到 `standalone/server.mjs`；
+3. 用 `desktop/electron-builder.yml` 打包（`npx electron-builder --win portable`），
+   `extraResources` 会把 `runtime/` 与 `standalone/` 一起带进包；
+4. 首次启动会在 `%LOCALAPPDATA%\FilmFlow` 建数据目录，然后在「API 设置」里填自己的 Key。
 
 > 便携包内置运行时，目标机器不需要装 Node / DSH。
 
@@ -95,6 +98,13 @@ node plugin/standalone/server.mjs --port 3210 --no-open
 ---
 
 ## 上手（五分钟）
+
+### 先配两把钥匙
+
+左侧轨道最下面的「API 设置」分两段：
+
+- **Agent（DeepSeek）**：Key、Base URL `https://api.deepseek.com/anthropic`、模型 `deepseek-flash` —— 改完**重启**生效；
+- **AIGC（火山引擎）**：方舟 Key（Seedance 视频 / Seedream 图片）+ 豆包语音 Key（音频，可选） —— **保存即生效**。
 
 1. **新建片子**：片库页 → 选片名 + 一套预设（悬疑 / 科幻 / 短剧 / 广告 / 纪录片…）→ 建。
 2. **看画布**：左边是工序树。点方块改正文；方块上的 ＋ 是"往下建节点"，菜单里只列这一步能建的。
