@@ -47,6 +47,7 @@ export const ROLE_LABELS = {
   'gen-image': '图片生成',
   'gen-audio': '音频生成',
   other: '通用节点',
+  ref: '参考资料',
 };
 
 /**
@@ -65,7 +66,13 @@ export const ROLE_PARENTS = {
    */
   content: ['root', 'content', 'other'],
   /* 风格锚点：能挂顶层、能挂内容节点、**关键**能挂在视频提示词下面（提示词直接读它） */
-  style: ['root', 'content', 'prompt-video'],
+  style: ['root', 'content', 'gen-video', 'prompt-video'],
+  /*
+   * 参考资料（2026-11-02 用户）：用户自己写好的原稿（Word/TXT/Markdown）。
+   * 「只能放在最上游（片名节点下面）、下游不能接任何节点、跟别的节点没有互动」
+   * ⇒ 父只认 root；下面不收任何角色；不进 DEP_RULES，所以谁都依赖不了它。
+   */
+  ref: ['root'],
   /*
    * 提示词节点可以套自己：文件型提示词「按文件展开」出来的子节点（v1/b1…）
    * 就是同一类的分段，不是另一类节点。没有这条，展开一次就会被迁移当成违规搬走。
@@ -75,10 +82,10 @@ export const ROLE_PARENTS = {
   'model-video': ['root', 'content', 'prompt-video', 'other'],
   'model-image': ['root', 'content', 'other'],
   'model-audio': ['root', 'content', 'prompt-audio', 'other'],
-  'gen-video': ['root', 'prompt-video'],
+  'gen-video': ['root', 'content', 'prompt-video'],
   'gen-image': ['root', 'content', 'prompt-video'],
-  'gen-audio': ['root', 'prompt-audio'],
-  other: ['root', 'content', 'prompt-video', 'prompt-audio', 'other'],
+  'gen-audio': ['root', 'content', 'prompt-audio'],
+  other: ['root', 'content', 'prompt-video', 'prompt-audio', 'gen-video', 'other'],
 };
 
 /**
@@ -99,30 +106,37 @@ export function normalizeRole(role) {
  * 三十个分镜模板，只给他这一步真正会用的那几类。
  */
 export const MENU_CHILDREN = {
-  root: ['content', 'style', 'prompt-video', 'prompt-audio', 'model-video', 'model-image', 'model-audio', 'gen-image', 'other'],
-  content: ['content', 'style', 'prompt-video', 'prompt-audio', 'model-video', 'model-image', 'model-audio', 'gen-image', 'other'],
+  root: ['content', 'style', 'gen-image', 'gen-audio', 'ref', 'other'],
+  content: ['content', 'style', 'gen-image', 'gen-audio', 'other'],
   /* 提示词下面能挂：同类型模型 / 同类型生成 / **风格锚点** / 空白 */
-  'prompt-video': ['style', 'model-video', 'gen-video', 'other'],
-  'prompt-audio': ['model-audio', 'gen-audio', 'other'],
+  'prompt-video': ['style', 'other'],
+  'prompt-audio': ['gen-audio', 'other'],
   'model-video': [],
   'model-image': [],
   'model-audio': [],
-  'gen-video': [],
+  'gen-video': ['style', 'other'],
   'gen-image': [],
   'gen-audio': [],
+  ref: [],
   /*
    * 空白/自建节点：它是"什么都能装"的通用容器，但**能装的不等于能当依赖**。
    * 2026-10-29 实测漂移：这里原来还列着 `gen-image`，而 `gen-image` 的法定父里没有
    * `other`（它也当不了图片生成的依赖）⇒ 菜单能点、落盘被拒。菜单求交后已不可能
    * 出现这种越界，这条也一并从表里删掉，别再靠求交兜。
    */
-  other: ['content', 'prompt-video', 'prompt-audio', 'model-video', 'model-image', 'model-audio', 'other'],
+  other: ['content', 'other'],
 };
+
+/**
+ * 菜单里隐藏的角色（2026-11-03：生成内化成表格里的一格按钮，不再新建生成节点）。
+ * 老节点仍然合法（ROLE_PARENTS 不变），只是不给新建入口 —— 删掉会读不了老片子。
+ */
+export const HIDDEN_MENU_ROLES = new Set(['gen-video', 'gen-image', 'gen-audio']);
 
 /** 这些角色是叶子节点：下面不能再挂任何东西。 */
 export const TERMINAL_ROLES = new Set([
   'model-video', 'model-image', 'model-audio',
-  'gen-video', 'gen-image', 'gen-audio',
+  'gen-image', 'gen-audio', 'ref',
 ]);
 
 /* ── 正向表（父 → 子）：校验用逆表，人看着别扭，这里翻过来 ──────────────
@@ -169,7 +183,9 @@ export function menuChildrenOf(parentRole) {
   const listed = MENU_CHILDREN[parent];
   if (!Array.isArray(listed)) return [];
   const legal = roleChildrenOf(parent);
-  return listed.filter((child) => legal.includes(normalizeRole(child)));
+  return listed
+  	.filter((child) => !HIDDEN_MENU_ROLES.has(normalizeRole(child)))
+  	.filter((child) => legal.includes(normalizeRole(child)));
 }
 
 /** 全部角色的菜单（下发给画布，替掉原来直接甩 MENU_CHILDREN 的做法）。 */
@@ -246,10 +262,19 @@ export function ruleWarnings() {
  * `roles`：依赖节点允许的角色；`label`：报错时给人看的说法。
  */
 export const DEP_RULES = {
-  'gen-video': { roles: ['prompt-video'], label: '视频提示词' },
-  'gen-audio': { roles: ['prompt-audio'], label: '音频提示词' },
+  'gen-video': { roles: ['content', 'prompt-video'], label: '内容节点' },
+  'gen-audio': { roles: ['content', 'prompt-audio'], label: '内容节点' },
   'gen-image': { roles: ['content', 'prompt-video'], label: '内容节点' },
 };
+
+/**
+ * 依赖**可空**的生成角色（2026-11-02 用户：「让视频和图片生成节点不必有上游依赖，
+ * 允许依赖的和不允许依赖的保持不变」）。
+ *
+ * 注意只取消「必须有」这一条：给了依赖，类型仍必须落在 DEP_RULES 里那几类；
+ * 音频生成（gen-audio）用户没点名，仍然要求有上游。
+ */
+export const OPTIONAL_DEP_ROLES = new Set(['gen-video', 'gen-image']);
 
 /** 提示词模板 id → 角色。 */
 const PROMPT_IDS = new Set(['video-prompt', 'audio-prompt']);
@@ -504,8 +529,8 @@ export const TEMPLATE_CHILDREN = {
   worldview: ['blank'],
   script: ['script-series', 'blank'],
   storyboard: ['media-image', 'blank'],
-  'video-prompt': ['video-model', 'video-gen', 'art-style', 'color', 'lighting', 'style', 'blank'],
-  'audio-prompt': ['audio-model', 'media-audio', 'blank'],
+  /* 2026-11-02：视频提示词/视频模型两类节点撤掉，风格锚点改挂「生成视频」下游 */
+  'video-gen': ['art-style', 'color', 'lighting', 'style', 'blank'],
   /* 宽口：按角色菜单放行（就是 R47 那份），它是"自己定义一格"的逃逸口。 */
   blank: '*',
 };
@@ -708,6 +733,8 @@ export function roleLabel(role) {
 export function checkDeps(role, depRoles) {
   const rule = DEP_RULES[String(role)];
   if (!rule) return { ok: true };
+  /* 2026-11-02：label 里可能有「内容节点」这种自带「节点」的写法，拼句子时去掉尾巴，避免出现「内容节点节点」。 */
+  const lab = String(rule.label || '').replace(/节点$/, '');
   const hit = (Array.isArray(depRoles) ? depRoles : []).some((r) => {
     const x = normalizeRole(r);
     return rule.roles.includes(x) || (x === 'content' && rule.roles.includes('content'));
@@ -715,8 +742,8 @@ export function checkDeps(role, depRoles) {
   if (hit) return { ok: true };
   return {
     ok: false,
-    error: roleLabel(role) + '必须依赖至少一个' + rule.label + '节点（现在没有）',
-    label: rule.label,
+    error: roleLabel(role) + '必须依赖至少一个' + lab + '节点（现在没有）',
+    label: lab,
     roles: rule.roles,
   };
 }

@@ -26,15 +26,18 @@ agent 不在天空里，它在这张图上干活：看板 → 读节点 → 提�
 
 ## 功能
 
-- **工序画布**：树形布局、依赖导线、折叠、缩放、拖动；正文就地编辑；新建 / 删除 / 改名 / 移动 / 撤销 / 重做。
-- **六种正文形态**：纯文本、条目列表、表格、矩阵、一任务一文件、下拉选择 —— 编辑器按形态解析，结构不会写歪。
-- **节点库**：53 个节点模板（流程 / 人物 / 世界 / 视觉 / 类型 / 剧集 / 广告 / 纪录片 / MV / 企业 / 风格 / 模型 / 媒体）+ 13 套片型预设。
+- **工序画布**：树形布局、依赖导线、折叠缩放、拖动；正文就地编辑；新建 / 删除 / 改名 / 移动 / 撤销 / 重做；人名节点单击改名。
+- **分镜表就是生成台**：7 列（镜号 / 时长 / 景别 / 机位·运镜 / 画面内容 / 台词·声音 / 备注），表内直接加行、删行；每行末尾两格「生成 / 预览」，点镜号展开本行汇总的提示词（可改、可存、可直接生成）。
+- **生成单元**：分镜是剪辑单位，生成是素材单位 —— 短于 4 秒的镜头**必须**和相邻镜并组，一次生成覆盖 1..N 镜（一条连续镜头）；程序校验覆盖/顺序/时长区间。
+- **六种正文形态**：纯文本、条目列表、表格、矩阵、一任务一文件、下拉选择；表格解析失败时也给空表骨架 + 原文块，不会退化成文本框。
+- **节点库**：49 个节点模板（流程 / 人物 / 世界 / 视觉 / 类型 / 剧集 / 广告 / 纪录片 / MV / 企业 / 风格 / 模型 / 媒体）+ 13 套片型预设。
 - **自定义节点**：任何节点的 ＋ 里有「✎ 自定义节点…」—— 用自然语言告诉 agent 要什么，它写好节点、存进模板库，并挂在这一步下面。
-- **13 把 agent 工具**：看板 / 读节点 / 提案 / 检索 / 对齐 / 下游直写 / 模板库 / 存节点 / 写媒体参数 / 读文件 / 写文件 / 上网 / 模型提示词速查。
+- **14 把 agent 工具**：看板 / 读节点 / 提案 / 检索 / 对齐 / 下游直写 / 模板库 / 存节点 / 生成单元 / 写媒体参数 / 读文件 / 写文件 / 上网 / 模型提示词速查。
+- **agent 可停可回溯**：顶栏「暂停」能真正打断当前一轮；「会话历史」列出被换掉过的会话，可切回并改绑。
+- **片库管理**：项目卡片可删除 —— 不是硬删，挪进同级的 `_已删除/`，删错了能搬回来。
+- **参考资料只读**：`参考/` 是用户原稿，agent 不许改；参考文件一变就自动叫醒它，按流程跟下游（缺节点 propose add、少人 propose rename、内容对不上 propose 正文）。
 - **媒体生成**：火山方舟 Seedance（视频）、Seedream（图片），豆包语音（音频/配音）；素材库按项目分文件夹。
-- **API 设置**：Agent 用 DeepSeek；AIGC 用火山（方舟 + 豆包语音）—— 两段分开，AIGC 保存即生效。
-
----
+- **API 设置**：Agent（默认 DeepSeek 官方，也可切火山方舟 v4.1）+ AIGC（方舟 + 豆包语音）—— 两段分开，AIGC 保存即生效。
 
 ## 快速开始
 
@@ -61,12 +64,12 @@ agent 不在天空里，它在这张图上干活：看板 → 读节点 → 提�
 
 ```
 plugin/                片厂插件（DSH host + browser 两半，零构建）
-  index.js             宿主半：/filmflow/* 路由 + 13 把工具
+  index.js             宿主半：/filmflow/* 路由 + 14 把工具
   client-plugin/       浏览器半：画布 / 项目菜单 / 素材库 / 节点库（slot 注入）
   host/                规则矩阵、默认工程、媒体服务
-  templates.json       53 个模板 + 13 套预设
+  templates.json       49 个模板 + 13 套预设
   CONSTITUTION.md      agent 人格（运行时读它当系统提示词）
-  filmflow.patch.yml   由 tools/build-profile.mjs 生成的组合叠加层
+  filmflow.patch.yml   profile 叠加层（插件清单 / 模型 provider / 工具白名单）
   standalone/server.mjs  独立运行胶水（起 DSH、开端口、写 runtime.patch.yml）
 desktop/               Electron 桌面壳（窗口、启动画面、数据目录、单实例锁）
 docs/                  教程、截图、宣传片
@@ -103,7 +106,10 @@ node plugin/standalone/server.mjs --port 3210 --no-open
 
 左侧轨道最下面的「API 设置」分两段：
 
-- **Agent（DeepSeek）**：Key、Base URL `https://api.deepseek.com/anthropic`、模型 `deepseek-flash` —— 改完**重启**生效；
+- **Agent（DeepSeek）**：Key、Base URL `https://api.deepseek.com/anthropic`、模型 `deepseek-flash` —— 改完**重启**生效。
+  这是默认的对话模型；想用**火山方舟 v4.1（DeepSeek-V4.1-Flash）**，把 `plugin/filmflow.patch.yml` 里
+  `agentProvider/agentModel` 和 `agent-default-model` 两处改成 `ark-volcengine` / `deepseek-v4-1-flash-261017`，
+  再把 `ARK_LLM_API_KEY` 写进凭据文件（**别**和出片用的 `ARK_API_KEY` 混用）。
 - **AIGC（火山引擎）**：方舟 Key（Seedance 视频 / Seedream 图片）+ 豆包语音 Key（音频，可选） —— **保存即生效**。
 
 1. **新建片子**：片库页 → 选片名 + 一套预设（悬疑 / 科幻 / 短剧 / 广告 / 纪录片…）→ 建。
@@ -145,7 +151,7 @@ node plugin/standalone/server.mjs --port 3210 --no-open
                │ 加载
 ┌──────────────▼───────────────┐
 │ 片厂插件 plugin/              │
-│  宿主半 index.js + host/      │  结构校验、依赖/过期、媒体任务、13 把工具
+│  宿主半 index.js + host/      │  结构校验、依赖/过期、媒体任务、14 把工具
 │  浏览器半 client-plugin/      │  画布/项目菜单/素材库/节点库（注入官方槽位）
 └──────────────────────────────┘
 ```
@@ -167,12 +173,7 @@ node plugin/standalone/server.mjs --port 3210 --no-open
   node plugin/tools/identity-scan.mjs   # 人物主从层（人物 → 人物·单人 → 属性 → 单品）
   ```
 
-- 改 `CONSTITUTION.md`（agent 人格）后要重新生成叠加层：
-
-  ```powershell
-  node plugin/tools/build-profile.mjs           # 写 plugin/filmflow.patch.yml
-  node plugin/tools/build-profile.mjs --check   # 只校验是否漂移
-  ```
+- `CONSTITUTION.md`（agent 人格）是**运行时读取**的，改完重启即可；`filmflow.patch.yml` 是 profile 叠加层（插件清单 / 模型 provider / 工具白名单），直接改。
 
 - 新增节点模板：在 `templates.json` 加一条，并在 `host/node-rules.js` 的 `TEMPLATE_CHILDREN` 里
   声明它的下位（不写 = 叶子），然后跑审计。
@@ -184,9 +185,8 @@ node plugin/standalone/server.mjs --port 3210 --no-open
 - 主要面向 **Windows**（便携包、路径、豆包语音都按 Windows 验证）。
 - 源码运行需要 **DSH 运行时**，本仓库不附带（体积与授权原因）。
 - 音频生成需要豆包语音控制台**开通服务**，且用的是「豆包语音」的 Key，不是方舟的 `ark-` Key。
+- 行内生成 / 生成单元只对**表格形态**的分镜脚本生效；旧片的独立生成节点（`video-gen`）已从菜单隐藏，但仍可读、可删。
 - 早期项目里有些节点没有记录"用哪个模板建的"，这部分节点的 ＋ 菜单会退回按大类显示（不追溯旧数据）。
-
----
 
 ## 许可
 

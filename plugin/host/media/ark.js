@@ -229,7 +229,8 @@ export async function download(url, destPath) {
 /** 从凭据文件读 ARK_API_KEY。永远不要把返回值打到日志里。 */
 export function readAccessKey(fs, file) {
   try {
-    const m = /^ARK_API_KEY:\s*(\S+)/m.exec(fs.readFileSync(file, 'utf8'));
+    const m = /ARK_API_KEY\s*:\s*["']?([A-Za-z0-9_\-]+)/.exec(fs.readFileSync(file, 'utf8'));
+	/* 同上：流式 refs 用逗号连写，\S+ 会把逗号吞进去（2026-11-03） */
     return m ? m[1] : '';
   } catch {
     return '';

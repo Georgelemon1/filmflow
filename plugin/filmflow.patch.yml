@@ -30,6 +30,11 @@
       name: __FF_ENTRY__
       config:
         roots: !!js (process.env.FILMFLOW_ROOTS || ((process.env.USERPROFILE || process.env.HOME || '.') + '/films')).split(';')
+        # 片场默认 agent 模型 = DeepSeek 官方（设置页填 sk-… 就能用）。
+        # 想用火山方舟的 v4.1（DeepSeek-V4.1-Flash）：改成 ark-volcengine / deepseek-v4-1-flash-261017，
+        # 并在凭据文件里加 ARK_LLM_API_KEY（注意别和出片用的 ARK_API_KEY 混用）。
+        agentProvider: deepseek-official
+        agentModel: deepseek-flash
 
     # 加：浏览器半边（官方 main 槽里的「工序」画布 + filmflow_propose 的提案卡）
     # 它的宿主半边还负责把片子目录登记成 DSH 的工作区（否则左边栏会显示一个
@@ -69,6 +74,15 @@
           # 不可靠；改挂 profile 级（见 PRUNE 注释）。
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
+          # 2026-11-03：agent 要能**看图**（用户：「两个都开」）。
+          # 只挂 read_image：读/写/改全关，避免它绕过提案闸门直接改文件。
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: false
+              readImage: true
+              write: false
+              edit: false
 
 
 # 默认用它，并且不给用户切回「标准模式」——片场里只有一种 agent。
@@ -191,9 +205,15 @@
 - id: tool-pwsh
   disabled: true
 
-# 官方 fs 工具 —— 换成片场自己的 filmflow_read / filmflow_write
+# 官方 fs 工具 —— 读/写/改**仍然不要**（片场用 filmflow_read / filmflow_write 那套有护栏的）；
+# 但 2026-11-03 用户拍板：「两个都开」—— agent 需要能**看图**（参考图、素材库成片、分镜图）。
+# 所以只开 readImage，读写编辑一律关掉，能力面只多「看一张图」。
 - id: tool-fs
-  disabled: true
+  config:
+    read: false
+    readImage: true
+    write: false
+    edit: false
 
 # 官方检索工具 —— 同上（读用 filmflow_read，查用 filmflow_board）
 - id: tool-fs-search
@@ -443,9 +463,8 @@
 - id: image-offload
   disabled: true
 
-# 输入框的 + 附件按钮 —— agent 没有附件工具，传了也用不上
+# 输入框的 + 附件按钮 —— 2026-11-03 打开：用户要能直接把参考图贴给 agent（通道 a）
 - id: ui-attachment
-  disabled: true
 
 # 工作区文件视图 —— 片场不翻文件
 - id: workspace-files
@@ -460,12 +479,46 @@
   disabled: true
 
 # 另一个模型供应商（pi-ai）—— A/O 两条路都留，和主 DSH 一致
+#
+# ★ 2026-11-03 用户：「给本机片厂配一个火山引擎的 v4.1」
+#   深度求索官方端点出故障时（今天就断过一次），片场要能切到火山方舟的同一个模型。
+#   注意 key 用**独立变量** ARK_LLM_API_KEY，不是 ARK_API_KEY ——
+#   后者是 AIGC（Seedance 视频 / Seedream 图片）用的另一把 key，混用会把出片搞坏。
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
     providers:
       deepseek:
         apiKeyEnv: DEEPSEEK_API_KEY
+      ark-volcengine:
+        displayName: 火山方舟
+        api: openai-completions
+        baseURL: https://ark.cn-beijing.volces.com/api/v3
+        apiKeyEnv: ARK_LLM_API_KEY
+        compat:
+          thinkingFormat: deepseek
+          supportsReasoningEffort: false
+        models:
+          - id: deepseek-v4-1-flash-261017
+            name: DeepSeek-V4.1-Flash（火山方舟）
+            contextWindow: 1048576
+            maxTokens: 256000
+            input:
+              - text
+            reasoningEfforts:
+              off: off
+              high: high
+              max: max
+
+# 片场默认模型 = DeepSeek 官方（和设置页的 Agent 段一致）。
+# 想用火山方舟 v4.1：provider 改 ark-volcengine、model 改 deepseek-v4-1-flash-261017，
+# 并把 ARK_LLM_API_KEY 写进凭据文件（ark-volcengine 的 provider 段已经配好）。
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+    reasoningEffort: max
 
 # 会话统计页 —— 导演不看这个
 - id: session-stats

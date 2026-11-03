@@ -10,7 +10,8 @@
 //      没有"新会话"、没有会话列表（一个项目只绑一个会话）
 //   2. `main`/`projects` = **项目菜单**（第一个页面）
 //   3. `main`/`canvas`   = **工作台**：左工序画布、右官方会话框
-//   4. `tool.call.toolview`/`filmflow_propose` = 提案卡（确认/驳回长在工具调用处）
+//   4. `shell.overlay`/`filmflow.dock` = 待确认提案面板（钉在会话框一侧；
+//      内联 `tool.call.toolview` 卡已停用 —— 它被折叠进「已调用的工具」步骤里，用户找不到）
 //
 // 用户 2026-10-20 定的页面流（原话）：
 //   「第一个页面是项目菜单，点进项目之后是画布，右边栏是 Agent 会话框。
@@ -94,6 +95,18 @@ window.__ModuleLoader__.load({
   padding-top:var(--dsh-frame-top-clearance,0px)}
 .ff-bar{flex:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   padding:10px 16px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+/* 顶栏下的消息条：出错时一直留着，直到人点 ×（2026-11-02） */
+.ff-errbar{flex:none;display:none;align-items:flex-start;gap:10px;margin:8px 16px 0;
+  padding:9px 12px;border-radius:8px;font-size:13px;line-height:1.65;
+  border:1px solid var(--dsw-alias-state-error-primary);
+  background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 11%, transparent)}
+.ff-errbar.on{display:flex}
+.ff-errbar.ok{border-color:var(--dsw-alias-state-success-primary);
+  background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 11%, transparent)}
+.ff-errbar-tx{flex:1 1 auto;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.ff-errbar-x{flex:none;cursor:pointer;font-size:16px;line-height:1.1;padding:0 4px;user-select:none;
+  color:var(--dsw-alias-label-secondary)}
+.ff-errbar-x:hover{color:var(--dsw-alias-label-primary)}
 .ff-sel{font:inherit;font-size:13px;font-weight:600;padding:3px 6px;border-radius:6px;
   border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-primary);
   cursor:pointer;max-width:46vw}
@@ -163,6 +176,23 @@ window.__ModuleLoader__.load({
 .ff-node-hd{display:flex;align-items:baseline;gap:5px;white-space:nowrap}
 .ff-node-no{font-size:11px;color:var(--dsw-alias-label-secondary)}
 .ff-node-t{font-size:13.5px;font-weight:600}
+/* 参考资料节点的只读文件清单（2026-11-02）：给 agent 看的，画布上没有任何按钮 */
+.ff-refs{margin-top:6px;padding:6px 8px;border-radius:7px;border:1px dashed var(--dsw-alias-border-l2);
+  font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary);white-space:pre-wrap}
+.ff-refs-hd{font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:2px}
+.ff-refs-it{word-break:break-all;display:flex;align-items:flex-start;gap:8px;justify-content:space-between}
+.ff-refs-name{flex:1 1 auto;min-width:0;word-break:break-all}
+.ff-refs-del{flex:none;cursor:pointer;opacity:.55;padding:0 2px}
+.ff-refs-del:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}
+/* 标题空着的人名节点：画一个住手就想去填的空白框（2026-11-02） */
+/* 空白人名框：要有高度，鼠标才好点（2026-11-03 用户：单击写不了） */
+.ff-node.untitled .ff-node-t{display:inline-block;min-width:88px;min-height:20px;padding:2px 6px;
+  border:1px dashed var(--dsw-alias-border-l2);border-radius:4px;vertical-align:middle}
+.ff-node.untitled .ff-node-t:hover{border-color:var(--dsw-alias-brand-primary)}
+/* 「选择文件」—— 参考资料唯一的交互入口（2026-11-02） */
+.ff-refs-pick{margin-top:6px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11.5px;
+  border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);display:inline-block}
+.ff-refs-pick:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
 .ff-node-bd{font-size:12px;line-height:1.55;color:var(--dsw-alias-label-secondary);
   white-space:pre-wrap;cursor:text;box-sizing:border-box;
   /*
@@ -216,10 +246,31 @@ window.__ModuleLoader__.load({
 /* ── 节点上的结构操作按钮（2026-10-21 P2）─────────────────────────────
  * 悬停才出现；按钮本身很小，不抢节点的视觉重心。
  */
+/* 表格节点（分镜脚本，2026-11-02）：**横向不限宽**，让表格自己撑开 */
+.ff-node.tbl{max-width:none;width:max-content}
+.ff-node.tbl .ff-node-bd{width:max-content;max-width:none;overflow-x:visible;white-space:normal}
+/* 表格节点永远全览：紧凑档的 140px 限高对它不生效，也不给折叠 */
+/* 表格节点：默认折叠成 10 行，可滚；点一下全展开（2026-11-03 用户） */
+.ff-node.tbl .ff-node-bd{overflow-y:auto;overflow-x:visible;scrollbar-width:thin}
+/* 高度与滚动由 JS 按折叠状态设置（见 renderTableInto），这里不写死 */
+.ff-tbl-wrap{max-width:none;overflow-x:visible}
+.ff-tbl{border-collapse:collapse;font-size:11.5px;line-height:1.5;white-space:nowrap}
+.ff-tbl th,.ff-tbl td{border:1px solid var(--dsw-alias-border-l1);padding:3px 8px;text-align:left;vertical-align:top}
+.ff-tbl th{background:var(--dsw-alias-bg-layer-2);font-weight:600}
+.ff-tbl td{white-space:pre-wrap;min-width:56px}
+.ff-tbl-grp td{background:var(--dsw-alias-bg-layer-2);font-weight:600}
 .ff-node{position:relative}
-.ff-node-ops{position:absolute;right:-46px;top:50%;transform:translateY(-50%);
+/*
+ * 工具按钮：贴着节点右边缘（margin 0），中间那点空隙用 **padding** 给 ——
+ * padding 属于按钮容器，鼠标从节点滑向按钮的途中一直在 hover 区里，
+ * 不会「一离开节点按钮就消失，离得远还点不着」（用户 2026-11-03）。
+ */
+.ff-node-ops{position:absolute;left:100%;margin-left:0;padding-left:8px;top:0;
   display:none;gap:2px;align-items:center;z-index:3}
-.ff-node:hover .ff-node-ops{display:flex}
+/* 表格节点太宽：钉在标题行右端，并给标题留出按钮的位置 */
+.ff-node.tbl .ff-node-ops{left:auto;right:0;margin-left:0;top:0}
+.ff-node.tbl .ff-node-hd{padding-right:108px}
+.ff-node:hover .ff-node-ops,.ff-node.ops-on .ff-node-ops{display:flex}
 button.ff-op{font:11px/1 inherit;padding:2px 5px;border-radius:5px;cursor:pointer;
   border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);
   color:var(--dsw-alias-label-secondary)}
@@ -408,7 +459,60 @@ button.ff-btn{background:transparent;font-family:inherit}
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
 .ff-viewer img,.ff-viewer video{max-width:86vw;max-height:78vh;border-radius:8px;background:#000}
 .ff-viewer .bar{display:flex;gap:8px;align-items:center;color:#ddd;font-size:12px}
-/* 待确认提案面板：钉在会话框底部（不是画布上） */
+/* 分镜表：行内删除 + 加一行（这两格是**虚拟列**，不写进 md） */
+.ff-tbl-op{width:26px;min-width:26px;max-width:26px;cursor:pointer;text-align:center;
+  color:var(--dsw-alias-label-secondary);opacity:.45;user-select:none}
+.ff-tbl-op:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}
+/* 行内生成 + 预览两格（虚拟列：只渲染，不写进 md） */
+.ff-tbl-gen{width:74px;min-width:74px;max-width:74px;cursor:pointer;text-align:center;
+  font-size:11.5px;padding:3px 6px;border-radius:6px;user-select:none;
+  border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}
+.ff-tbl-gen:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.ff-tbl-gen.run{border-style:dashed;color:var(--dsw-alias-brand-primary)}
+.ff-tbl-gen.done{color:var(--dsw-alias-label-secondary)}
+.ff-tbl-thumb{width:56px;min-width:56px;max-width:56px}
+.ff-tbl-thumb-cell{width:56px;text-align:center}
+.ff-tbl-gen-cell{text-align:center}
+.ff-tbl-thumb-img{width:40px;height:24px;object-fit:cover;border-radius:4px;cursor:pointer;
+  border:1px solid var(--dsw-alias-border-l2);display:inline-block;vertical-align:middle}
+.ff-tbl-thumb-tag{width:28px;height:22px;line-height:20px;margin:0 auto;border-radius:4px;cursor:pointer;
+  border:1px solid var(--dsw-alias-border-l2);font-size:11px;color:var(--dsw-alias-label-secondary)}
+.ff-tbl-thumb-tag:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+/* 生成单元的"组带"：一行脚本格对一格视频 —— 组首那一条横带管整组 */
+.ff-tbl-band td{background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent);
+  border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2);
+  font-size:11.5px;font-weight:600;letter-spacing:.2px;color:var(--dsw-alias-label-primary)}
+.ff-tbl-band td:first-child{padding-left:10px}
+.ff-tbl-sub{font-size:10.5px;color:var(--dsw-alias-label-tertiary);cursor:default;letter-spacing:.3px}
+.ff-tbl-no{cursor:pointer}
+.ff-tbl-no:hover{color:var(--dsw-alias-brand-primary)}
+.ff-tbl-detail td{padding:8px 10px;background:var(--dsw-alias-bg-layer-1)}
+.ff-tbl-detail-box{display:flex;flex-direction:column;gap:6px;max-width:760px}
+.ff-tbl-detail-lab{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.ff-tbl-detail-ta{font:12px/1.6 ui-monospace,Consolas,monospace;padding:8px;border-radius:8px;
+  border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);
+  color:var(--dsw-alias-label-primary);resize:vertical;width:100%;box-sizing:border-box}
+.ff-tbl-detail-bar{display:flex;gap:8px}
+.ff-tbl-add{margin-top:6px}
+.ff-tbl-add .ff-btn{font-size:12px}
+.ff-tbl-leftover{margin-top:8px;padding:8px 10px;border-radius:8px;
+  border:1px dashed var(--dsw-alias-border-l2);font-size:11.5px;line-height:1.7;
+  color:var(--dsw-alias-label-secondary);max-width:520px}
+/* 会话历史：找回以前的对话（换过会话时切回去） */
+.ff-sess{position:fixed;inset:0;z-index:72;background:rgba(0,0,0,.55);
+  display:flex;align-items:center;justify-content:center;padding:24px}
+.ff-sess-card{width:min(640px,88vw);max-height:74vh;overflow:auto;
+  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);
+  border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.ff-sess-hd{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:600}
+.ff-sess-note{font-size:11.5px;line-height:1.65;color:var(--dsw-alias-label-secondary)}
+.ff-sess-item{border:1px solid var(--dsw-alias-border-l2);border-radius:9px;padding:9px 11px;
+  display:flex;align-items:center;gap:12px;justify-content:space-between}
+.ff-sess-l{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ff-sess-t{font-size:12.5px;font-weight:600}
+.ff-sess-id{font:11px/1.5 ui-monospace,Consolas,monospace;color:var(--dsw-alias-label-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 待确认提案面板：钉在会话框这一侧（不是画布上，也不塞进对话流的折叠步骤里） */
 .ff-dock{position:fixed;left:64px;bottom:96px;width:400px;max-height:42vh;overflow:auto;z-index:55;
   pointer-events:auto;   /* shell.overlay 是 click-through 的，这一层必须自己收事件 */
   display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;
@@ -450,9 +554,15 @@ button.ff-btn{background:transparent;font-family:inherit}
 button.ff-btn:disabled{opacity:.55;cursor:default}
 .ff-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 .ff-proj{border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:14px 16px;cursor:pointer;
+  position:relative;   /* 删除按钮钉右上角 */
+  padding-right:56px;   /* 给删除按钮留位，别压住标题 */
   display:flex;flex-direction:column;gap:8px;background:var(--dsw-alias-bg-base);
   transition:border-color .12s,background .12s}
 .ff-proj:hover{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-1)}
+.ff-proj-del{position:absolute;right:10px;top:10px;font-size:11px;line-height:1;padding:4px 6px;
+  border-radius:6px;color:var(--dsw-alias-label-secondary);opacity:.55;cursor:pointer;user-select:none}
+.ff-proj:hover .ff-proj-del{opacity:.9}
+.ff-proj-del:hover{background:var(--dsw-alias-state-error-primary);color:#fff;opacity:1}
 .ff-proj .t{font-size:14.5px;font-weight:600;line-height:1.4;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ff-proj .m{font-size:11.5px;color:var(--dsw-alias-label-secondary);display:flex;gap:10px;flex-wrap:wrap}
@@ -828,19 +938,51 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			const btnUndo = el("div", "ff-btn off", "撤销");
 			const btnRedo = el("div", "ff-btn off", "重做");
 			/*
-			 * 顶层新建（R57）：叶子模板（场景/道具/项目总纲…）在子节点里不再出现，
-			 * 必须有一个"在项目顶层加一道工序"的入口，否则这些模板在已有片子里无处可放。
+			 * 顶栏**不再放**「＋ 工序」（2026-11-02 用户）：
+			 *   画布最左边的根节点（片名那个）本来就带 ＋，它才是"最上游"的入口；
+			 *   两个入口功能完全一样，多一个只会让人犹豫点哪个。
 			 */
-			const btnAddStage = el("div", "ff-btn", "＋ 工序");
-			btnAddStage.title = "在项目顶层新建一道工序";
-			bar.append(btnBack, chips, sp, meta, btnAddStage, btnFit, btnReload, btnUndo, btnRedo);
-
-			btnAddStage.addEventListener("click", () => {
-				openTplMenu(btnAddStage, { title: "项目顶层", nodeRole: "root", key: "", canAdd: null });
+			/*
+			 * 「会话历史」（2026-11-03 用户：「你改完片厂总是把我和agent的历史会话给弄没有」）。
+			 * 会话换了以后，老对话还在磁盘上（`.film/session-history.json` 记着），只是界面没入口。
+			 * 这里给一个：列出来、点一下就用 openSession 打开，并把绑定改回那条。
+			 */
+			const btnSess = el("div", "ff-btn", "会话历史");
+			btnSess.title = "找回以前的对话：换过会话就从这里切回去";
+			btnSess.addEventListener("click", () => { void openSessions(); });
+			/*
+			 * 暂停：把 agent 当前这一轮打断（用户 2026-11-03：「暂停运行按钮貌似没用」）。
+			 * 只在它**正在跑**的时候显示 —— 平时不占位置，也不误导人去点。
+			 */
+			const btnPause = el("div", "ff-btn w", "暂停");
+			btnPause.title = "打断 agent 正在跑的这一轮（已排队的消息保留）";
+			btnPause.className = "ff-btn w off";
+			btnPause.addEventListener("click", async () => {
+				const p0 = current();
+				if (!p0) return;
+				btnPause.textContent = "暂停中…";
+				try {
+					const r = await post("/filmflow/agent", { action: "pause", root: p0.root });
+					/*
+					 * 按下去那一刻它可能早就跑完了（模型快时 2–3 秒一轮）。
+					 * 那种情况 cancel 是 no-op，不能报「已暂停」骗人 —— 直接说清楚。
+					 */
+					const wasRunning = r && r.ok && /running|busy|working/i.test(String(r.statusAtPress || ""));
+					const why = r && r.ok ? (wasRunning ? "已暂停" : "刚才那一轮已经跑完了，没有可中断的")
+						: ("没暂停成：" + String((r && r.error) || "未知原因"));
+					showNote(why, r && r.ok ? "ok" : undefined);
+				} catch (e) {
+					showNote("没暂停成：" + String((e && e.message) || e));
+				}
+				btnPause.textContent = "暂停";
+				SIG.tree = "";
+				await load();
 			});
 
 			btnUndo.addEventListener("click", () => { void structure({ type: "undo" }); });
 			btnRedo.addEventListener("click", () => { void structure({ type: "redo" }); });
+
+			bar.append(btnBack, btnSess, chips, sp, meta, btnFit, btnReload, btnPause, btnUndo, btnRedo);
 			/** 问宿主 undo/redo 各有几步；空就灰掉。 */
 			async function refreshHist() {
 				if (!S || !S.current) return;
@@ -849,6 +991,94 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					btnUndo.className = "ff-btn" + (j.undo ? "" : " off");
 					btnRedo.className = "ff-btn" + (j.redo ? "" : " off");
 				} catch { /* 忽略 */ }
+			}
+
+			/** 会话历史：列出这部片用过的会话，点一条就切过去。 */
+			let sessEl = null;
+			function closeSessions() { if (sessEl) { try { sessEl.remove(); } catch { /* 忽略 */ } sessEl = null; } }
+			async function openSessions() {
+				const rootNow = String((S && S.current) || wantRoot || "");
+				if (!rootNow) { showNote("还没选片子"); return; }
+				let cur = "", hist = [], curMeta = null;
+				try {
+					const r = await fetch("/filmflow/session?root=" + encodeURIComponent(rootNow), { headers: { accept: "application/json" } });
+					const j = await r.json();
+					if (j && j.ok) { cur = String(j.sessionId || ""); curMeta = j.meta || null; hist = Array.isArray(j.history) ? j.history : []; }
+				} catch { /* 读不到就只列空表 */ }
+				let wsIds = [];
+				try {
+					const api = ACTIVE_CTX;
+					const w = api && api.remote && api.remote.workspace ? await api.remote.workspace.create({ path: rootNow }) : null;
+					const ws2 = w && w.ok ? w.value && w.value.workspace : null;
+					wsIds = ((ws2 && ws2.sessionIds) || []).map(String);
+				} catch { /* 忽略 */ }
+				const seen = new Set();
+				const rows = [];
+				const push = (id, at, tag, meta) => {
+					const k = String(id || "");
+					if (!k || seen.has(k)) return;
+					seen.add(k);
+					rows.push({ id: k, at: String(at || ""), tag, meta: meta || null });
+				};
+				push(cur, "", "当前绑定", curMeta);
+				for (const h of hist) push(h && h.sessionId, h && h.at, "被换掉过：" + String((h && h.reason) || ""), h && h.meta);
+				for (const id of wsIds) push(id, "", "工作区里的会话", null);
+				/*
+				 * 按**最近写入时间**排：会话文件大小/修改时间由宿主 stat 出来（/filmflow/session 的 meta）。
+				 * 只按 history 的`at`（= 被换掉的时间）排会误导 —— 用户真正在聊的那条可能早就被换掉、
+				 * 但之后一直在写（实测 a8e2e17f：258 条事件、74 次工具调用，写到 14:42）。
+				 */
+				const tOf = (r) => {
+					const v = Date.parse((r.meta && r.meta.mtime) || r.at || "");
+					return Number.isFinite(v) ? v : 0;
+				};
+				rows.sort((a, b) => {
+					if (a.id === cur) return -1;
+					if (b.id === cur) return 1;
+					return tOf(b) - tOf(a);
+				});
+				if (!rows.length) { showNote("这部片还没有会话记录"); return; }
+				closeSessions();
+				const box = el("div", "ff-sess");
+				box.addEventListener("click", (ev) => { if (ev.target === box) closeSessions(); });
+				const card = el("div", "ff-sess-card");
+				const hd = el("div", "ff-sess-hd");
+				hd.append(el("div", null, "会话历史（" + rows.length + " 条）"));
+				const x = el("div", "ff-btn", "关闭");
+				x.addEventListener("click", closeSessions);
+				hd.append(x);
+				card.append(hd);
+				card.append(el("div", "ff-sess-note", "点「打开」就用这条会话继续：界面切过去，agent 下次也被叫回这条。老会话里的内容不会丢。"));
+				const openIt = async (id) => {
+				try { localStorage.setItem("ff.sess." + rootNow, id); } catch { /* 忽略 */ }
+					try { await post("/filmflow/session", { root: rootNow, sessionId: id }); }
+					catch (e) { showNote("绑定写不进去：" + String((e && e.message) || e)); }
+					try {
+						if (ACTIVE_CTX && ACTIVE_CTX.uiWorkspace) ACTIVE_CTX.uiWorkspace.openSession(id);
+					} catch (e) { showNote("打不开这条会话：" + String((e && e.message) || e)); }
+					closeSessions();
+					EXPANDED.clear();
+					SIG.tree = "";
+					await load();
+				};
+				for (const r of rows) {
+				const row = el("div", "ff-sess-item");
+				const left = el("div", "ff-sess-l");
+				const mt = (r.meta && r.meta.mtime) || r.at || "";
+				let when = "";
+				if (mt) { try { when = new Date(mt).toLocaleString(); } catch { when = mt; } }
+				const kb = r.meta && r.meta.size ? Math.max(1, Math.round(r.meta.size / 1024)) + " KB" : "";
+				left.append(el("div", "ff-sess-t", (r.id === cur ? "● " : "") + (when || "（没有时间信息）") + (kb ? "　" + kb : "")));
+				left.append(el("div", "ff-sess-id", r.id));
+				if (r.tag) left.append(el("div", "ff-sess-note", r.tag));
+				const open = el("div", "ff-btn" + (r.id === cur ? " off" : ""), r.id === cur ? "当前" : "打开");
+				open.addEventListener("click", () => { void openIt(r.id); });
+				row.append(left, open);
+					card.append(row);
+				}
+				box.append(card);
+				document.body.append(box);
+				sessEl = box;
 			}
 			window.addEventListener("keydown", (ev) => {
 				if (!(ev.ctrlKey || ev.metaKey)) return;
@@ -859,6 +1089,40 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				else if ((k === "z" && ev.shiftKey) || k === "y") { ev.preventDefault(); void structure({ type: "redo" }); }
 			});
 
+			/*
+			 * 顶栏下的消息条（用户 2026-11-02：「画布上栏的错误信息显示时间太短了，根本看不清楚」）。
+			 *
+			 * 原来提示都写进顶栏的 meta，而 meta 由 2 秒一次的轮询重画（drawBar）清空 ——
+			 * 一条错误最长亮 2 秒，还是 11.5px 的单行小字。现在单独做成一条：
+			 *   出错 → 常驻，直到人点 × 或下一条消息覆盖（慢点看不会没）；
+			 *   提示 → 8 秒自动收；网络类的「读不到状态」→ 15 秒自动收，恢复了别一直挂着。
+			 */
+			const errBar = el("div", "ff-errbar");
+			const errTx = el("div", "ff-errbar-tx");
+			const errX = el("div", "ff-errbar-x", "×");
+			errX.title = "关闭";
+			errBar.append(errTx, errX);
+			let noteTimer = 0;
+			function hideNote() {
+				if (noteTimer) { clearTimeout(noteTimer); noteTimer = 0; }
+				errBar.className = "ff-errbar";
+				errTx.textContent = "";
+			}
+			/**
+			 * 在顶栏下面显示一条消息。
+			 * @param text - 说给人看的话
+			 * @param tone - "ok"（8 秒收）/ "warn"（15 秒收）/ 省略 = 出错常驻
+			 */
+			function showNote(text, tone) {
+				const msg = String(text == null ? "" : text).trim();
+				if (!msg) { hideNote(); return; }
+				if (noteTimer) { clearTimeout(noteTimer); noteTimer = 0; }
+				errTx.textContent = msg;
+				errBar.className = "ff-errbar on" + (tone === "ok" ? " ok" : "");
+				if (tone === "ok") noteTimer = setTimeout(hideNote, 8000);
+				else if (tone === "warn") noteTimer = setTimeout(hideNote, 15000);
+			}
+			errX.addEventListener("click", hideNote);
 			const stage = el("div", "ff-stage");
 			const world = el("div", "ff-world");
 			stage.append(world);
@@ -868,14 +1132,22 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			 * 否则线停在旧位置。只观察 world 的尺寸变化，帧级 debounce。
 			 */
 			let linesRaf = 0;
+			/*
+			 * ★ 用 setTimeout 防抖，不用 requestAnimationFrame（2026-11-03）。
+			 *
+			 * 窗口被隐藏/遮挡时（Electron 后台窗、最小化、远程桌面断开），Chromium 把 rAF
+			 * 整个掐掉（实测：页面 hidden 时 requestAnimationFrame 回调 0 次，setTimeout 照常）。
+			 * 而导线重画全靠这条路径 ⇒ 后台画一次就再也不更新，切回来看到的就是旧线。
+			 * 16ms 跟一帧等价，还不用挑可见性。
+			 */
 			const redrawLines = () => {
 				if (linesRaf) return;
-				linesRaf = requestAnimationFrame(() => {
+				linesRaf = setTimeout(() => {
 					linesRaf = 0;
 					try {
 						if (world.querySelector(":scope > .ff-tree")) drawConnectors(world);
 					} catch { /* 画失败不该影响别的 */ }
-				});
+				}, 16);
 			};
 			let linesRO = null;
 			try {
@@ -913,7 +1185,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				ev.stopPropagation();
 				hud.className = hud.className.indexOf("open") >= 0 ? "ff-hud" : "ff-hud open";
 			});
-			host.append(bar, stage, hud);
+			host.append(bar, errBar, stage, hud);
 
 			/*
 			 * 媒体「参数」浮层（网格档用）：格子太小放不下表单，
@@ -1123,6 +1395,520 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					.trim();
 				return s;
 			}
+			/** Uint8Array → base64（分块，别一次性 apply 大数组）。 */
+			function u8ToB64(u8) {
+				let s = "";
+				const CH = 0x8000;
+				for (let i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+				return btoa(s);
+			}
+
+			/**
+			 * 参考资料：点「选择文件…」→ 系统文件选择框 → 上传到项目的「参考/」目录。
+			 * 2026-11-02 用户：「是用来放文件的，不是用来填写的，要有点击选择文件的功能」。
+			 */
+			function pickRefFiles(n) {
+				const inp = document.createElement("input");
+				inp.type = "file";
+				inp.multiple = true;
+				inp.accept = ".docx,.txt,.md,.markdown";
+				inp.style.display = "none";
+				document.body.append(inp);
+				inp.addEventListener("change", async () => {
+					const files = [...(inp.files || [])];
+					inp.remove();
+					if (!files.length) return;
+					try {
+						const payload = [];
+						for (const f of files) {
+							const buf = await f.arrayBuffer();
+							payload.push({ name: f.name, data: u8ToB64(new Uint8Array(buf)) });
+						}
+						const r = await post("/filmflow/reference", {
+							root: n.root || (current() && current().root) || "",
+							action: "add",
+							files: payload,
+						});
+						if (r && r.ok === false) throw new Error(r.error || "上传失败");
+						showNote("已加入 " + payload.length + " 个参考文件", "ok");
+						SIG.tree = "";
+						await load();
+					} catch (e) {
+						showNote("加参考文件失败：" + String((e && e.message) || e));
+					}
+				});
+				/* 用户按了「取消」：把临时 input 收掉，别在 DOM 里越堆越多 */
+				inp.addEventListener("cancel", () => inp.remove());
+				inp.click();
+			}
+
+			/** 参考资料：删掉一份文件（宿主只删项目「参考/」里的那一份）。 */
+			async function removeRefFile(n, f) {
+				try {
+					await post("/filmflow/reference", {
+						root: n.root || (current() && current().root) || "",
+						action: "remove",
+						name: String(f.name || f.path || ""),
+					});
+					SIG.tree = "";
+					await load();
+				} catch (e) {
+					showNote("删不掉：" + String((e && e.message) || e));
+				}
+			}
+
+			/**
+			 * 把 `table` 形态的 doc 画成真表格（2026-11-02）。
+			 * doc 结构：{ kind:'table', columns:[{key,label}], groups:[{path:[], rows:[{key:value}]}] }
+			 */
+			/* ── 分镜表：加一行 / 删一行（2026-11-03 用户：「只能添加行」）──────────
+			 *
+			 * 只动**正文 markdown**：找到表格块、插入/删除一行、整篇写回（同一套护栏：备份 + 声明
+			 * 白名单）。不碰 shape/表头 —— 表头是 schema，加列要另外设计（role/编排），这版不做。
+			 * 镜号取现有最大值 +1，**不重排已有行**：生成状态以后按镜号绑，重排会把状态错位。
+			 */
+			/** 找出正文里所有 markdown 表格块（表头行 + 分隔行 + 行区间）。 */
+			function mdTableBlocks(text) {
+				const lines = String(text || "").split(/\r?\n/);
+				const out = [];
+				for (let i = 0; i < lines.length - 1; i++) {
+					if (!/^\s*\|/.test(lines[i])) continue;
+					if (!/^\s*\|[\s:|-]*$/.test(lines[i + 1])) continue;
+					let end = i + 1;
+					while (end + 1 < lines.length && /^\s*\|/.test(lines[end + 1])) end++;
+					out.push({ head: i, sep: i + 1, start: i + 2, end, lines });
+					i = end;
+				}
+				return out;
+			}
+			/** 比较用：去掉空白后比（文件里对齐用的空格不一致）。 */
+			function rowNorm(s) { return String(s || "").replace(/\s+/g, ""); }
+			/** 把一行 markdown 拆成单元格。 */
+			function splitRow(s) {
+				return String(s || "").replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((x) => x.trim());
+			}
+			/** 整篇写回 → 重画。 */
+			async function saveTableText(n, text) {
+				const p = current();
+				if (!p) return;
+				await post("/filmflow/edit", {
+					root: p.root, src: n.src, line: n.line, whole: true,
+					title: n.title, kind: n.kind, via: "md", text,
+				});
+				SIG.tree = "";
+				await load();
+			}
+			/** 在最后一张表末尾追加一行。 */
+			async function tableAddRow(n, cols) {
+				try {
+					const blocks = mdTableBlocks(n.fileText || "");
+					/*
+					 * 空表（新片刚建、文件里只有一个标题）也要能加行 ——
+					 * 第一次点「＋ 加一行」就顺手把**标准表头**写进去，之后照常追加。
+					 * 2026-11-03 实测：新片里点加行没反应，因为文件里还没表。
+					 */
+					if (!blocks.length) {
+						const head = "| " + cols.map((c) => String(c.label || c.key)).join(" | ") + " |";
+						const sep = "| " + cols.map(() => "---").join(" | ") + " |";
+						const first = "| " + cols.map((c, i2) => (i2 === 0 ? "1" : "")).join(" | ") + " |";
+						const base = String(n.fileText || "").replace(/\s+$/, "");
+						const next = (base ? base + "\n\n" : "") + head + "\n" + sep + "\n" + first + "\n";
+						await saveTableText(n, next);
+						showNote("建好表头，加了第一行", "ok");
+						return;
+					}
+					const b = blocks[blocks.length - 1];
+					let maxNo = 0;
+					for (let i = b.start; i <= b.end; i++) {
+						const no = parseInt(String(splitRow(b.lines[i])[0] || "").replace(/[^0-9]/g, ""), 10);
+						if (Number.isFinite(no) && no > maxNo) maxNo = no;
+					}
+					const cells = cols.map((c, i) => (i === 0 ? String(maxNo + 1) : ""));
+					b.lines.splice(b.end + 1, 0, "| " + cells.join(" | ") + " |");
+					await saveTableText(n, b.lines.join("\n"));
+					showNote("加了一行（镜号 " + (maxNo + 1) + "）", "ok");
+				} catch (e) {
+					showNote("加行失败：" + String((e && e.message) || e));
+				}
+			}
+			/** 删掉内容匹配的那一行（重复行只删第一处）。 */
+			async function tableDelRow(n, cells) {
+				try {
+					const want = rowNorm("| " + cells.join(" | ") + " |");
+					for (const b of mdTableBlocks(n.fileText || "")) {
+						for (let i = b.start; i <= b.end; i++) {
+							if (rowNorm(b.lines[i]) !== want) continue;
+							b.lines.splice(i, 1);
+							await saveTableText(n, b.lines.join("\n"));
+							showNote("删掉了一行", "ok");
+							return;
+						}
+					}
+					showNote("没在文件里找到这一行（可能刚被别处改过），刷新再看");
+				} catch (e) {
+					showNote("删行失败：" + String((e && e.message) || e));
+				}
+			}
+
+			/**
+			 * 把一行汇总成提示词（2026-11-03：提示词由行内容编出来，不再手工写在节点里）。
+			 *
+			 * 顺序按镜头语言的读法：机位/运镜 → 景别 → 画面内容 → 台词/声音 → 备注。（时长不进提示词：那是 duration 参数。）
+			 * 只把**非空**的格子写进去，空的不塞占位词 —— 否则模型会照着占位词编。
+			 * 提示词最终以 `.film/generation.json` 里存的为准（用户在行详情里改过就用改过的）。
+			 */
+			function promptOfRow(row) {
+				const get = (key) => String((row && row[key]) != null ? row[key] : "").trim();
+				const parts = [];
+				const move = get("move");
+				const shot = get("shot");
+				if (move || shot) parts.push([move, shot].filter(Boolean).join("、"));
+				const pic = get("pic");
+				if (pic) parts.push(pic);
+				const line = get("line");
+				if (line) parts.push("声音/台词：" + line);
+				const note = get("note");
+				if (note) parts.push("备注：" + note);
+				
+				return parts.join("；");
+			}
+
+			/**
+			 * 点了「单元」的生成：一次任务覆盖组内 1..N 个镜。
+			 *
+			 * 为什么要单元而不是行：模型最短 4 秒，而分镜里很多镜头 1 秒以内；
+			 * 硬按行提交就是拿 4 秒换 1 秒，还不连贯。组内各镜按顺序拼成
+			 * `镜头1：… 镜头2：…`（sd2.5 的多事件链写法）。**出来的就是一条片子，整条导出** —— 要拆镜交给剪辑软件。
+			 */
+			async function genUnit(n, u, running, btn) {
+				const p = current();
+				if (!p) return;
+				if (running) {
+					try {
+						await post("/filmflow/gen", { action: "cancelUnit", root: p.root, id: u.id });
+						showNote("已取消 " + u.id, "ok");
+					} catch (e) { showNote("取消失败：" + String((e && e.message) || e)); }
+					SIG.tree = "";
+					await load();
+					return;
+				}
+				btn.textContent = "提交中…";
+				try {
+					const r = await post("/filmflow/gen", { action: "genUnit", root: p.root, id: u.id });
+					if (r && r.ok === false) { showNote("没生成：" + (r.error || ""), "warn"); btn.textContent = "生成"; return; }
+					showNote("已提交：" + u.id + "（镜 " + (u.covers || []).join("/") + "，" + u.durationSec + " 秒）", "ok");
+				} catch (e) {
+					showNote("没生成：" + String((e && e.message) || e));
+					btn.textContent = "生成";
+					return;
+				}
+				SIG.tree = "";
+				await load();
+			}
+
+			/** 点了行内「生成」：先定提示词，再交给宿主起任务。 */
+			async function genRow(n, no, row, g, running, btn) {
+				const p = current();
+				if (!p) return;
+				if (running) {
+					try {
+						await post("/filmflow/gen", { action: "cancel", root: p.root, no });
+						showNote("已取消这一行", "ok");
+					} catch (e) { showNote("取消失败：" + String((e && e.message) || e)); }
+					SIG.tree = "";
+					await load();
+					return;
+				}
+				/* 提示词：已存的优先（用户可能在行详情里改过），没有再按行内容汇总 */
+				const prompt = String((g && g.prompt) || "").trim() || promptOfRow(row);
+				if (!prompt) { showNote("这一行还没内容，先写「画面」再说"); return; }
+				btn.textContent = "提交中…";
+				try {
+					const r = await post("/filmflow/gen", { root: p.root, action: "gen", no, prompt, type: "video" });
+					if (r && r.ok === false) { showNote("没生成：" + r.error); btn.textContent = "生成"; return; }
+					showNote("已提交：镜" + no, "ok");
+				} catch (e) {
+					showNote("没生成：" + String((e && e.message) || e));
+					btn.textContent = "生成";
+		return;
+	}
+				SIG.tree = "";
+				await load();
+			}
+
+			function renderTableInto(bd, n) {
+				const doc = n.doc || {};
+				const cols = (Array.isArray(doc.columns) && doc.columns.length ? doc.columns : (n.shape && n.shape.columns) || []);
+				const wrap = el("div", "ff-tbl-wrap");
+				const table = el("table", "ff-tbl");
+				const thead = el("thead");
+				const trh = el("tr");
+				for (const c of cols) trh.append(el("th", undefined, String((c && (c.label || c.key)) || "")));
+				const editable = !!(n.src && n.fileText);
+				const genRows = n.genRows && typeof n.genRows === "object" ? n.genRows : null;
+				if (editable) trh.append(el("th", "ff-tbl-op", ""));
+				/* 行内生成 + 预览（2026-11-03：生成不再是一个独立节点）—— 两格都是**虚拟列**，不写进 md */
+				if (genRows) {
+					trh.append(el("th", "ff-tbl-gen", "生成"), el("th", "ff-tbl-thumb", "预览"));
+				}
+				thead.append(trh);
+				table.append(thead);
+				const tbody = el("tbody");
+				for (const g of doc.groups || []) {
+					const p = (g.path || []).filter(Boolean);
+					/* 组标题 == 节点标题时不用重复画一行（文件里 `# 分镜脚本` 会被当成组） */
+					const dupTitle = p.length && String(p[p.length - 1]).trim() === String(n.title || "").trim();
+					if (p.length && !dupTitle) {
+						const tr = el("tr", "ff-tbl-grp");
+						const td = el("td");
+						td.colSpan = Math.max(1, cols.length) + (editable ? 1 : 0) + (genRows ? 2 : 0);
+						td.textContent = String(p[p.length - 1]);
+						tr.append(td);
+						tbody.append(tr);
+					}
+					/* ★ 生成单元（2026-11-03）：几行脚本格 → 一格视频。*/
+					let lastUnit = "";
+					const unitMap = new Map((Array.isArray(n.units) ? n.units : []).map((u) => [String(u.id), u]));
+					for (const row of g.rows || []) {
+						const tr = el("tr");
+						for (const c of cols) tr.append(el("td", undefined, String((row && row[c.key]) ?? "")));
+						const noU = String((row && row.no) != null ? row.no : "").trim();
+						const gsU = genRows ? (genRows[noU] || null) : null;
+						const uidAll = String((gsU && gsU.unit) || "");
+						/*
+						 * 只有**覆盖 ≥2 个镜**的单元才画组带、才把行内的按钮收走。
+						 * 一镜一单元（= 分组实质上没并组）时保持老样子：一行一格。
+						 * 否则 31 个单镜单元会画成 31 条组带，比原来更乱（2026-11-03 实测踩到）。
+						 */
+						const uidU = (() => {
+							if (!uidAll) return "";
+							const u0 = unitMap.get(uidAll);
+							return u0 && (u0.covers || []).length >= 2 ? uidAll : "";
+						})();
+						const uU = uidU ? unitMap.get(uidU) : null;
+						if (uU && uidU !== lastUnit) {
+							lastUnit = uidU;
+							const band = el("tr", "ff-tbl-band");
+							const info = el("td");
+							info.colSpan = Math.max(1, cols.length) + (editable ? 1 : 0);
+							info.textContent = uidU + " · " + (uU.durationSec || "?") + " 秒 · 镜 " + (uU.covers || []).join("–");
+							info.title = String(uU.why || "") + (uU.prompt ? "\n\n提示词：\n" + uU.prompt : "");
+							band.append(info);
+							const ust = String(uU.status || "idle");
+							const urun = ust === "running" || ust === "queued";
+							const ubtn = el("div", "ff-tbl-gen" + (urun ? " run" : uU.asset ? " done" : ""), urun ? (ust === "queued" ? "排队" : "生成中") : (uU.asset ? "重生成" : (ust === "failed" ? "重试" : "生成")));
+							ubtn.title = uU.error ? ("上次失败：" + uU.error) : ("一次生成 " + (uU.covers || []).length + " 个镜（" + (uU.durationSec || "?") + " 秒），出片是一条整的");
+							ubtn.addEventListener("click", (ev) => { ev.stopPropagation(); void genUnit(n, uU, urun, ubtn); });
+							const ub1 = el("td", "ff-tbl-gen-cell");
+							ub1.append(ubtn);
+							band.append(ub1);
+							const ub2 = el("td", "ff-tbl-thumb-cell");
+							const ua = uU.asset;
+							if (ua && ua.src) {
+								const uurl = "/filmflow/assets?action=file&root=" + encodeURIComponent(n.root || (current() && current().root) || "") + "&p=" + encodeURIComponent(ua.src);
+								if (String(ua.type) === "image") {
+									const im = el("img", "ff-tbl-thumb-img");
+									im.src = uurl;
+									im.title = "点开看大图";
+									im.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: ua }); });
+									ub2.append(im);
+								} else {
+									const tag = el("div", "ff-tbl-thumb-tag", String(ua.type) === "audio" ? "♪" : "▶");
+									tag.title = "点开播放（这是整组那一条）";
+									tag.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: ua }); });
+									ub2.append(tag);
+								}
+							}
+							band.append(ub2);
+							tbody.append(band);
+						}
+					if (genRows) {
+						const no = String((row && row.no) != null ? row.no : "").trim();
+						const g = genRows[no] || null;
+						const st = String((g && g.status) || "idle");
+						const running = st === "running" || st === "queued";
+						const btn = el("div", "ff-tbl-gen" + (running ? " run" : g && g.asset ? " done" : ""),
+							running ? (st === "queued" ? "排队" : "生成中") : (g && g.asset ? "重生成" : (st === "failed" ? "重试" : "生成")));
+						btn.title = g && g.error ? ("上次失败：" + g.error) : "点一下生成这一镜（提示词从这一行汇总）";
+						btn.addEventListener("click", (ev) => {
+							ev.stopPropagation();
+							void genRow(n, no, row, g, running, btn);
+						});
+						const td1 = el("td", "ff-tbl-gen-cell");
+						if (uidU) {
+							const sub = el("span", "ff-tbl-sub", "⊂ " + uidU);
+							sub.title = "这一镜跟 " + uidU + " 一起生成 —— 用上面那一格";
+							td1.append(sub);
+						} else {
+							td1.append(btn);
+						}
+						tr.append(td1);
+						const td2 = el("td", "ff-tbl-thumb-cell");
+						const a = uidU ? null : (g && g.asset);
+						if (a && a.src) {
+							const url = "/filmflow/assets?action=file&root=" + encodeURIComponent(n.root || (current() && current().root) || "") + "&p=" + encodeURIComponent(a.src);
+							if (String(a.type) === "image") {
+								const im = el("img", "ff-tbl-thumb-img");
+								im.src = url;
+								im.title = "点开看大图";
+								im.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: a }); });
+								td2.append(im);
+							} else {
+								const tag = el("div", "ff-tbl-thumb-tag", String(a.type) === "audio" ? "♪" : "▶");
+								tag.title = "点开播放";
+								tag.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: a }); });
+								td2.append(tag);
+							}
+						}
+						tr.append(td2);
+					}
+					if (editable) {
+						const td = el("td", "ff-tbl-op", "✕");
+						td.title = "删掉这一行";
+						td.addEventListener("click", (ev) => {
+							ev.stopPropagation();
+							const cells = [...tr.children].map((x) => x.textContent).slice(0, cols.length);
+							if (!confirm("删掉这一行？")) return;
+							void tableDelRow(n, cells);
+						});
+						tr.append(td);
+					}
+					/*
+					 * 行详情（点镜号展开）：显示/编辑这一行汇总出来的提示词。
+					 * 用户问「最后汇总出来的提示词需不需要显示出来」—— 要：生成结果不对时，
+					 * 先要能看见到底发过去的是什么，再能就地改一句。所以提示词不占表头，折叠在行下面。
+					 */
+					if (genRows) {
+						const no = String((row && row.no) != null ? row.no : "").trim();
+						const g2 = genRows[no] || null;
+						const detail = el("tr", "ff-tbl-detail");
+						detail.style.display = "none";
+						const dtd = el("td");
+						dtd.colSpan = Math.max(1, cols.length) + (editable ? 1 : 0) + 2;
+						const box = el("div", "ff-tbl-detail-box");
+						const lab = el("div", "ff-tbl-detail-lab", "提示词（由这一行汇总；改了就以改的为准）");
+						const ta = el("textarea", "ff-tbl-detail-ta");
+						ta.value = String((g2 && g2.prompt) || promptOfRow(row) || "");
+						ta.rows = 4;
+						ta.addEventListener("click", (ev) => ev.stopPropagation());
+						const bar = el("div", "ff-tbl-detail-bar");
+						const bSave = el("div", "ff-btn", "保存提示词");
+						bSave.addEventListener("click", async (ev) => {
+							ev.stopPropagation();
+							try {
+								await post("/filmflow/gen", { root: n.root || (current() && current().root) || "", action: "setPrompt", no, prompt: ta.value });
+								showNote("提示词已保存", "ok");
+							} catch (e) { showNote("保存失败：" + String((e && e.message) || e)); }
+						});
+						const bGen = el("div", "ff-btn p", "用这段生成");
+						bGen.addEventListener("click", async (ev) => {
+							ev.stopPropagation();
+							try {
+								await post("/filmflow/gen", { root: n.root || (current() && current().root) || "", action: "gen", no, prompt: ta.value, type: "video" });
+								showNote("已提交：镜" + no, "ok");
+								SIG.tree = "";
+								await load();
+							} catch (e) { showNote("没生成：" + String((e && e.message) || e)); }
+						});
+						bar.append(bSave, bGen);
+						box.append(lab, ta, bar);
+						dtd.append(box);
+						detail.append(dtd);
+						tbody.append(detail);
+						/* 点镜号那一格展开/收起 */
+						const noCell = tr.children[0];
+						if (noCell) {
+								noCell.classList.add("ff-tbl-no");
+								noCell.title = "点一下看/改这一行的提示词";
+								noCell.addEventListener("click", (ev) => {
+										ev.stopPropagation();
+										detail.style.display = detail.style.display === "none" ? "" : "none";
+								});
+						}
+					}
+						tbody.append(tr);
+					}
+				}
+				table.append(tbody);
+				wrap.append(table);
+				if (editable) {
+					const foot = el("div", "ff-tbl-add");
+					const addBtn = el("div", "ff-btn", "＋ 加一行");
+					addBtn.title = "在表格末尾加一行（镜号自动接下一个）";
+					addBtn.addEventListener("click", (ev) => {
+						ev.stopPropagation();
+						void tableAddRow(n, cols);
+					});
+					foot.append(addBtn);
+					wrap.append(foot);
+				}
+				bd.append(wrap);
+				/*
+				 * 文件里没有表格时（宿主把表形态兜成空表骨架），把已有的非表格文字一起显示出来，
+				 * 不然创建节点时随手写的字会看不见（2026-11-03）。
+				 */
+				if (n.leftover) {
+					const lo = el("div", "ff-tbl-leftover", "文件里还没有表格，以下是原文：\n" + String(n.leftover));
+					lo.style.whiteSpace = "pre-wrap";
+					wrap.append(lo);
+				}
+
+				/*
+				 * 折叠：默认只露 10 行，滚轮在框里滚；左键点一下全展开（再点收回去）。
+				 * 2026-11-03 用户：「改成默认十行，鼠标放上面可以滚动，左键点击一下就全展开」
+				 */
+				const FOLD_ROWS = 10;
+				const rowsAll = [...tbody.querySelectorAll("tr")];
+				if (rowsAll.length > FOLD_ROWS) {
+					bd.className += " tbl-fold";
+					/*
+					 * ⚠ 用 offsetHeight（布局像素），不能用 getBoundingClientRect：
+					 * 画布 world 上有 scale 变换，rect 量到的是缩放后的像素 ——
+					 * 缩到 0.3 倍时「10 行」会被算成 3 行高（用户 2026-11-03 实测：操作几次后变默认三行）。
+					 */
+					const foldH = () => {
+						const theadEl = table.querySelector("thead");
+						let h = theadEl ? theadEl.offsetHeight : 0;
+						let measured = 0;
+						for (let i = 0; i < FOLD_ROWS && i < rowsAll.length; i++) {
+							const rh = rowsAll[i].offsetHeight || 0;
+							if (rh > 0) { h += rh; measured++; }
+						}
+						/* 没量全就别写高度（否则会缩成两三行） */
+						if (measured < Math.min(FOLD_ROWS, rowsAll.length)) return;
+						bd.style.maxHeight = Math.ceil(h + 2) + "px";
+						bd.style.overflowY = "auto";
+						bd.style.overflowX = "visible";
+					};
+					foldH();
+					bd.title = "共 " + rowsAll.length + " 行 · 点一下全展开；在这里滚轮可以翻看";
+					/* 字体/换行可能晚一点稳定：再量两次（不靠 rAF，被遮住的窗口 rAF 不跑） */
+					setTimeout(foldH, 60);
+					setTimeout(foldH, 400);
+					setTimeout(foldH, 1200);
+					bd.addEventListener("click", (ev) => {
+						ev.stopPropagation();
+						if (bd.className.includes("tbl-open")) {
+							bd.className = bd.className.replace(/\s*tbl-open/g, "");
+							bd.style.maxHeight = "";
+							foldH();
+							bd.title = "共 " + rowsAll.length + " 行 · 点一下全展开";
+						} else {
+							bd.className += " tbl-open";
+							bd.style.maxHeight = "none";
+							bd.style.overflowY = "visible";
+							bd.title = "点一下收回 10 行";
+						}
+					});
+					/* 折叠时滚轮留给表格自己滚，别让画布缩放抢走 */
+					bd.addEventListener("wheel", (ev) => {
+						if (!bd.className.includes("tbl-open")) ev.stopPropagation();
+					}, { passive: true });
+				} else {
+					bd.style.maxHeight = "none";
+				}
+			}
+
 			function nodeEl(n) {
 				const d = el("div", "ff-node " + (n.kind || ""));
 				if (n.stale === "stale") d.className += " warn";
@@ -1138,6 +1924,28 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					ev.stopPropagation();
 					startRename(n, tEl);
 				});
+				/*
+				 * 人名节点（以及标题还空着的节点）：**单击**就进改名，不用双击。
+				 * 2026-11-03 用户：「有点难用，要左键单击更改/填写」——
+				 * 空白人名框只有一个虚线框，点它一下就应该是「填名字」，不是等双击。
+				 */
+				const nameEditable = !n.pseudo
+					&& (String(n.template || "") === "character-one" || !String(n.title || "").trim());
+				if (nameEditable) {
+					/* 整块都能点：数字、标题、空白处都算「填名字」 */
+					d.style.cursor = "text";
+					d.addEventListener("click", (ev) => {
+						if (ev.target && ev.target.closest && ev.target.closest(".ff-node-ops")) return;
+						ev.stopPropagation();
+						startRename(n, tEl);
+					});
+					tEl.style.cursor = "text";
+					tEl.title = "点一下填名字";
+					tEl.addEventListener("click", (ev) => {
+						ev.stopPropagation();
+						startRename(n, tEl);
+					});
+				}
 
 				/*
 				 * —— 正文 ——
@@ -1229,6 +2037,18 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						const warn = el("div", "ff-node-sel-warn", "存的值不在选项里：" + cur);
 						bd.append(warn);
 					}
+				} else if (!n.pseudo && n.doc && n.doc.kind === "table") {
+					/*
+					 * 表格形态（分镜脚本）：在画布上画**真表格**，不是一个字一个字的文本。
+					 * 用户 2026-11-02：「分镜脚本节点的格式做成表格，横向长度不限」
+					 */
+					d.className += " tbl";
+					renderTableInto(bd, n);
+					/*
+					 * 2026-11-03 用户：「点开全览后格式变了」—— 之前点表格会切成 markdown 原文。
+					 * ⇒ 表格节点**只读展示**：点它不变形；要改原文用右上角 ✎（见 ops 那段）。
+					 */
+					/* title 由 renderTableInto 按折叠状态设置 */
 				} else {
 					const body = hasSections ? "" : plainPreview(rawText);
 					if (hasSections) {
@@ -1252,7 +2072,48 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						});
 					}
 				}
-				d.append(hd, bd);
+				/*
+				 * 参考资料（2026-11-02 用户：「是用来放文件的，不是用来填写的」）：
+				 * 它**不画正文框**，只画文件清单 + 选择按钮；正文那套编辑逻辑整块跳过。
+				 */
+				const isRefNode = String(n.nodeRole || "") === "ref" || String(n.template || "") === "ref-file";
+				/* 容器节点（人物）：本节点不装正文，跟参考资料一样不画正文框 */
+				const isContainer = !isRefNode && (!!n.noBody || String(n.template || "") === "character");
+				if (isRefNode || isContainer) d.append(hd); else d.append(hd, bd);
+				/* 标题空着的节点（刚建的人名节点）：画一个小空白框，提示这里要填东西 */
+				if (!n.pseudo && !String(n.title || "").trim()) {
+					d.className += " untitled";
+					tEl.textContent = "";
+					tEl.title = "点我填名字";
+				}
+				/*
+				 * 参考资料（2026-11-02 用户）：正文下面列**只读**的文件清单。
+				 * 用户的原话是「作用就是给旁边的 agent 看，在画布上跟其他节点不会有任何互动」
+				 * ⇒ 只画文件名和大小，不给 ＋ / ✕ / 拖拽，也没有依赖关系。
+				 */
+				if (isRefNode) {
+					const box = el("div", "ff-refs");
+					const refs = Array.isArray(n.refFiles) ? n.refFiles : [];
+					box.append(el("div", "ff-refs-hd", refs.length ? "参考文件 " + refs.length + " 个" : "还没有参考文件"));
+					for (const f of refs) {
+						const kb = f.bytes ? "  " + Math.max(1, Math.round(f.bytes / 1024)) + " KB" : "";
+						const row = el("div", "ff-refs-it");
+						row.append(el("span", "ff-refs-name", "· " + String(f.path || f.name || "") + kb));
+						const del = el("span", "ff-refs-del", "✕");
+						del.title = "把这份文件从项目的「参考/」里删掉";
+						del.addEventListener("click", (ev) => {
+							ev.stopPropagation();
+							askConfirm("把「" + String(f.name || f.path) + "」从项目的「参考/」目录里删掉？", () => removeRefFile(n, f));
+						});
+						row.append(del);
+						box.append(row);
+					}
+					const pick = el("div", "ff-refs-pick", "＋ 选择文件…");
+					pick.title = "选 Word(.docx) / TXT / Markdown，会复制进项目的「参考/」目录";
+					pick.addEventListener("click", (ev) => { ev.stopPropagation(); pickRefFiles(n); });
+					box.append(pick);
+					d.append(box);
+				}
 
 				/*
 				 * 伪节点没有结构操作 —— 它不独立：增删改都归上游文件。
@@ -1260,6 +2121,21 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				 */
 				if (!n.pseudo) {
 					const ops = el("span", "ff-node-ops");
+					/*
+					 * 用户 2026-11-03：「鼠标一离开节点工具就消失，工具又离那么远，怎么点？」
+					 * ⇒ 离开节点后**留 250ms 宽限**（够鼠标滑到按钮上），进按钮再续命；
+					 *   真正离开按钮后同样 250ms 才收。纯 CSS :hover 中间那段空隙会闪没。
+					 */
+					let opsTimer = 0;
+					const showOps = () => { if (opsTimer) { clearTimeout(opsTimer); opsTimer = 0; } d.className += " ops-on"; };
+					const hideOpsSoon = () => {
+						if (opsTimer) clearTimeout(opsTimer);
+						opsTimer = setTimeout(() => { opsTimer = 0; d.className = d.className.replace(/\s*ops-on/g, ""); }, 250);
+					};
+					d.addEventListener("mouseenter", showOps);
+					d.addEventListener("mouseleave", hideOpsSoon);
+					ops.addEventListener("mouseenter", showOps);
+					ops.addEventListener("mouseleave", hideOpsSoon);
 					/*
 					 * 叶子节点（模型 / 生成）没有 ＋：它们下面本来就不能挂东西（R47）。
 					 * 菜单过滤只解决"能挂什么"，这一条解决"根本不该出现加号"。
@@ -1277,6 +2153,13 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 							add.addEventListener("click", (ev) => { ev.stopPropagation(); openTplMenu(add, n); });
 							ops.append(add);
 						}
+					}
+					/* 表格节点：看是表格，改要进原文编辑（✎） */
+					if (n.doc && n.doc.kind === "table") {
+						const editTbl = el("button", "ff-op", "✎");
+						editTbl.title = "编辑 markdown 原文（表格按原文渲染）";
+						editTbl.addEventListener("click", (ev) => { ev.stopPropagation(); startEdit(n, bd); });
+						ops.append(editTbl);
 					}
 					const up = el("button", "ff-op", "↑");
 					up.title = "同层上移";
@@ -1402,7 +2285,17 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				hd.append(el("span", "ff-node-no", n.no ? String(n.no) : ""), el("span", "ff-node-t", String(n.title || "")));
 				if (!inGrid) {
 					const ops = el("span", "ff-node-ops");
-					/* 媒体节点是叶子（生成完就是产物），下面不能再挂节点 —— 不给 ＋（R47）。 */
+					/*
+					 * 2026-11-02：生成类节点不再一律当叶子 —— 「生成视频」下面要能挂
+					 * 画风/色彩/光影/风格（用户：这些挂在视频生成节点的下游）。
+					 * 给不给 ＋ 不看 kind，看宿主算出来的 canAdd：空 = 真叶子。
+					 */
+					if (Array.isArray(n.canAdd) && n.canAdd.length) {
+						const addM = el("button", "ff-op", "＋");
+						addM.title = "在这里加节点";
+						addM.addEventListener("click", (ev) => { ev.stopPropagation(); openTplMenu(addM, n); });
+						ops.append(addM);
+					}
 					const upM = el("button", "ff-op", "↑");
 					upM.title = "同层上移";
 					upM.addEventListener("click", (ev) => { ev.stopPropagation(); structure({ type: "move", key: n.key, dir: "up" }); });
@@ -1757,9 +2650,8 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						 */
 						const au = (r && r.autoUnified) || { total: 0, files: [] };
 						if (au.total > 0) {
-							meta.textContent = "已改名并自动统一：" + String(n.title || "") + " → " + title
-								+ "（其它 " + au.files.length + " 个文件共 " + au.total + " 处）";
-							meta.style.color = "";
+							showNote("已改名并自动统一：" + String(n.title || "") + " → " + title
+								+ "（其它 " + au.files.length + " 个文件共 " + au.total + " 处）", "ok");
 						}
 						return;
 					}
@@ -1780,6 +2672,24 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			 * @param anchor - 贴哪个按钮弹
 			 * @param parent - 父节点（新节点挂在它下面）
 			 */
+			/**
+			 * 在 parent 下建一个子节点。
+			 * 2026-11-02 用户：「点人物节点的加号之后，下游自动新建一个看起来完全空白的节点」。
+			 * ⇒ 人物·单人建出来是**空标题**，这里顺手进入改名状态，人直接填名字。
+			 */
+			async function addChildUnder(parent, tpl) {
+				closeLayer(".ff-tpl");
+				const done = structure({ type: "add", at: parent.key || "", template: tpl.id });
+				if (String(tpl.id) !== "character-one") return done;
+				await Promise.resolve(done);
+				await new Promise((r) => setTimeout(r, 250));
+				const empty = [...document.querySelectorAll(".ff-node:not(.pseudo)")]
+					.find((x) => { const e = x.querySelector(".ff-node-t"); return e && !String(e.textContent || "").trim(); });
+				const tEl = empty && empty.querySelector(".ff-node-t");
+				if (tEl) tEl.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+				return done;
+			}
+
 			async function openTplMenu(anchor, parent) {
 				closeLayer(".ff-tpl");
 				let list = TPL_CACHE;
@@ -1812,6 +2722,12 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				const legal = Array.isArray(canAdd)
 					? list.filter((t) => canAdd.includes(String(t.id)))
 					: legalRole;
+				/* 只有一个合法下位时，＋ **直接建**，不弹菜单（人物 → 人物·单人 就是这种） */
+				if (legal.length === 1) {
+					void addChildUnder(parent, legal[0]);
+					return;
+				}
+
 				const menu = el("div", "ff-tpl");
 				menu.append(el("div", "ff-tpl-hd",
 					parentRole === "root" ? "在项目顶层新建一道工序" : "在「" + (parent.title || parent.key) + "」下面新建"));
@@ -1867,8 +2783,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						if (t.note) b.title = t.note;
 						b.addEventListener("click", (ev) => {
 							ev.stopPropagation();
-							closeLayer(".ff-tpl");
-							structure({ type: "add", at: parent.key || "", template: t.id });
+							void addChildUnder(parent, t);
 						});
 						listBox.append(b);
 					}
@@ -1951,16 +2866,14 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				try {
 					r = await post("/filmflow/structure", { root: S.current, op });
 				} catch (e) {
-					meta.textContent = "结构没改成：" + String((e && e.message) || e);
-					meta.style.color = "var(--dsw-alias-state-error-primary)";
+					showNote("结构没改成：" + String((e && e.message) || e));
 					return undefined;
 				}
 				if (r && r.ok === false) {
-					meta.textContent = "结构没改成：" + r.error;
-					meta.style.color = "var(--dsw-alias-state-error-primary)";
+					showNote("结构没改成：" + r.error);
 					return undefined;
 				}
-				meta.style.color = "";
+				hideNote();
 				try { SIG.tree = ""; } catch { /* 忽略 */ }
 				await load();
 				return r;
@@ -2116,13 +3029,20 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					return wrap;
 				}
 				if (kids.length > COLLAPSE_AT && expanded) {
+					/*
+					 * ★ 收起开关必须跟子节点待在**同一列**（2026-11-03 修）。
+					 *
+					 * 原来它自己独占一列（节点 → kids(开关) → kids(真子节点) 三列），
+					 * drawConnectors 只走第一列 ⇒ 真子节点整列没有导线、孙节点更走不到，
+					 * 用户截图报的「唐老板后面那个 性格 没有导线」就是它。
+					 * 挪进同一列之后，开关就是"第一个孩子"，父节点照常连到每个孩子。
+					 */
 					const less = el("div", "ff-more");
 					less.textContent = "▼ 收起这 " + kids.length + " 个下级";
-					const col0 = el("div", "ff-kids");
+					const col = el("div", "ff-kids");
 					const row = el("div", "ff-tree");
 					row.append(less);
-					col0.append(row);
-					const col = el("div", "ff-kids");
+					col.append(row);
 					appendKids(col, kids);
 					less.addEventListener("click", (ev) => {
 						ev.stopPropagation();
@@ -2130,7 +3050,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						SIG.tree = "";
 						draw();
 					});
-					wrap.append(col0, col);
+					wrap.append(col);
 					return wrap;
 				}
 				const col = el("div", "ff-kids");
@@ -2236,9 +3156,14 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					const tEl = node.querySelector(".ff-node-t") || node.querySelector(".ff-node-hd") || node;
 					const tr = rel(tEl);
 					const cy = (tr.t + tr.b) / 2;
-					const kids = tree.querySelector(":scope > .ff-kids");
-					if (!kids) return;
-					const childTrees = [...kids.children].filter((c) => c.tagName === "DIV");
+					/*
+					 * ★ 一棵树的直接子列可能**不止一个**（历史上「收起开关」自己占一列，真子节点在下一列）。
+					 * 只认第一列 ⇒ 真子节点整列连不上导线，它们的孙节点也跟着一根线都没有
+					 * （2026-11-03 实测：唐老板 → 性格 那根线完全没有，用户截图报的就是这个）。
+					 * ⇒ 把所有直接子列都收进来，一个孩子都不落。
+					 */
+					const childTrees = [...tree.querySelectorAll(":scope > .ff-kids")]
+						.flatMap((kc) => [...kc.children].filter((c) => c.tagName === "DIV"));
 					if (!childTrees.length) return;
 					const bx = nr.r + GAP;             // 竖线（括号主轴）的 x
 					/*
@@ -2335,14 +3260,54 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					|| list[0] || null;
 			}
 
+			/*
+			 * ★★ 2026-11-03：**agent 一开工，就把右侧对话切到它那条会话**。
+			 *
+			 * 为什么非切不可：DSH 那个蓝圈停止键，停的是**界面当前显示的那条会话**。
+			 * 宿主在 A 上跑活、界面停在 B ⇒ 按停止 = cancel 一条空闲会话
+			 * ⇒ client 把错误静默吞掉 ⇒ 用户看到的就是「停止键没用」。
+			 * 切过去之后，同一个 agent 对象既在画布上可暂停，也在对话里停得下。
+			 */
+			let lastRunKey = "";
+			function followRun(p) {
+				try {
+					if (!p || !p.agent || !p.agent.busy) return;
+					const key = String(p.root) + "|" + String(p.agent.startedAt || "");
+					if (key === lastRunKey) return;
+					lastRunKey = key;
+					fetch("/filmflow/session?root=" + encodeURIComponent(p.root), { headers: { accept: "application/json" } })
+						.then((r) => (r.ok ? r.json() : null))
+						.then((j) => {
+							const sid = String((j && j.sessionId) || "");
+							if (!sid) return;
+							let cur = "";
+							try {
+								cur = String((JSON.parse(localStorage.getItem("dsh.sessions.current") || "{}") || {}).sessionId || "");
+							} catch { /* 忽略 */ }
+							if (cur === sid) return;
+							if (!ACTIVE_CTX || !ACTIVE_CTX.uiWorkspace) return;
+							ACTIVE_CTX.uiWorkspace.openSession(sid);
+							try { localStorage.setItem("ff.sess." + p.root, sid); } catch { /* 忽略 */ }
+							diag("agent 开工 → 把对话切到它的会话 " + sid);
+						})
+						.catch(() => { /* 切不过去也不影响干活 */ });
+				} catch { /* 这一拍读不到就算了 */ }
+			}
+
 			/** 重画工具条。 */
 			function drawBar(p) {
-				if (!p) { meta.textContent = ""; chips.innerHTML = ""; return; }
+				if (!p) { chips.innerHTML = ""; return; }
+				followRun(p);
+				/* agent 在跑才给「暂停」—— 状态来自宿主算出来的真实状态，不是本地标志 */
+				try {
+					const ag = p.agent || {};
+					btnPause.className = "ff-btn w" + (ag.busy ? "" : " off");
+					if (ag.busy) btnPause.textContent = "暂停";
+				} catch { /* 状态读不到就不显示 */ }
 				/* 2026-10-29：story/board 授权锁已撤，工具条不再有锁 chip。 */
-				/* 顶栏不再显示「待对齐」计数（用户 2026-10-27：这几项都不必显示）；
-				   这里只留作出错时的提示行。 */
-				meta.textContent = "";
-				meta.style.color = "";
+				/* 顶栏不再显示「待对齐」计数（用户 2026-10-27：这几项都不必显示）。 */
+				/* 出错提示已挪到顶栏下面的消息条（showNote），这里不再清它 ——
+				   2026-11-02 用户说清了就只亮 2 秒、看不清。 */
 				refreshHist();
 			}
 
@@ -2360,7 +3325,6 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					const z = el("div", "ff-empty", "还没有片子。\n在 " + (S && S.roots || []).join("、") + " 下建一部，再点刷新。");
 					z.style.whiteSpace = "pre-wrap";
 					world.append(z);
-					meta.textContent = "";
 					return;
 				}
 				const sig = JSON.stringify([p.id, p.title, p.stages, FOCUS, LAYOUT]);
@@ -2413,6 +3377,21 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					requestAnimationFrame(again);
 					requestAnimationFrame(() => requestAnimationFrame(again));
 					try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(again); } catch { /* 忽略 */ }
+					/*
+					 * ★ 盯的是**根树的盒子**，不是 world 的盒子（2026-11-03 修）。
+					 *
+					 * 原来那个 ResizeObserver 只观察 world：world 是铺满舞台的定尺寸容器（实测 1100px 高，
+					 * 内容 1036px），内容变高变矮它一点不动 ⇒ 永远不触发。
+					 * 那个「每 2 秒比 svg 尺寸 vs world.scrollHeight」的哨兵同样失效（svg 自己撑着 scrollHeight）。
+					 * 实测现场：分镜脚本那张表在 1200ms 补算折叠高度，矮下 126px，根节点（align-items:center）
+					 * 跟着上移 63px，三条导线留在老位置 —— 屏幕上就是「线从节点旁边的空气里长出来」。
+					 * ⇒ 换成盯根树：高度一变就在下一帧重画（用现成的 redrawLines，帧级防抖）。
+					 */
+					if (linesRO && world._ffObsTree !== top) {
+						try { if (world._ffObsTree) linesRO.unobserve(world._ffObsTree); } catch { /* 忽略 */ }
+						linesRO.observe(top);
+						world._ffObsTree = top;
+					}
 					/*
 					 * ⚠ 2026-10-21 起**不再自动"适应窗口"**。
 					 *
@@ -2544,8 +3523,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					S = await fetchState();
 					draw();
 				} catch (err) {
-					meta.textContent = "读不到状态：" + String((err && err.message) || err);
-					meta.style.color = "var(--dsw-alias-state-error-primary)";
+					showNote("读不到状态：" + String((err && err.message) || err), "warn");
 				}
 			}
 
@@ -2788,7 +3766,16 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				setState("working");
 				setNote("");
 				try {
-					await post("/filmflow/approve", { root: record.root, id: record.id, action });
+					const res = await post("/filmflow/approve", { root: record.root, id: record.id, action });
+					/*
+					 * 宿主办不到（目标节点已经不在了）时回 action:'invalid' ——
+					 * 不能当成功一样盖个「已写进画布 ✓」，否则用户只会觉得「我点了但画布没变化」（2026-11-03）。
+					 */
+					if (res && res.action === "invalid") {
+						setState("error");
+						setNote("没执行：" + String(res.reason || "目标节点已不存在"));
+						return;
+					}
 					setState(action === "approve" ? "done" : "rejected");
 					setNote(action === "approve" ? "已写进画布 ✓" : "已驳回，什么都没改");
 				} catch (err) {
@@ -2822,6 +3809,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				const s = record.struct || {};
 				const op = String(s.op || "");
 				if (op === "add") return "新建节点（挂在 " + String(s.at || "") + " 下" + (s.template ? "，模板 " + s.template : "") + "）";
+				if (op === "delete" && Array.isArray(s.keys) && s.keys.length > 1) return "删除 " + s.keys.length + " 个节点（批量）";
 				if (op === "delete") return "删除节点 " + String(s.key || "");
 				if (op === "move") return (s.dir === "up" ? "上移 " : "下移 ") + String(s.key || "");
 				if (op === "rename") return "改名 " + String(s.key || "") + " → " + String(s.title || "");
@@ -3096,6 +4084,36 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					.catch((e) => { setMsg("没建成：" + String((e && e.message) || e)); setBusy(false); });
 			};
 
+			/**
+			 * 删一部片 —— 其实是**挪进同级的 _已删除**（2026-11-03 用户：「片库的项目要能删除」）。
+			 *
+			 * 为什么不真删：项目里全是手写正文，误删没法重来。挪走还能自己搬回来；
+			 * 宿主那边还要求把**目录名**原样回传做二次确认。
+			 */
+			const delProject = (p) => {
+				const name = String(p.root || "").split(/[\\/]/).filter(Boolean).pop() || "";
+				if (!name) { setMsg("读不到目录名，没法删"); return; }
+				const ok = confirm("把「" + (p.title || name) + "」移到回收站？\n"
+					+ "目录：" + p.root + "\n\n"
+					+ "不是永久删除：会挪到同级的 _已删除 文件夹里，想找回直接挪回去就行。");
+				if (!ok) return;
+				setBusy(true);
+				setMsg("正在挪走…");
+				post("/filmflow/deleteproject", { root: p.root, confirm: name })
+					.then((r) => {
+						if (r && r.ok === false) { setMsg("没删成：" + r.error); setBusy(false); return; }
+						setMsg("已移到回收站：" + ((r && r.movedTo) || name));
+						setBusy(false);
+						if (String(ENTERED || "").toLowerCase() === String(p.root || "").toLowerCase()) {
+							ENTERED = "";
+							try { localStorage.removeItem("filmflow.entered"); } catch { /* 忽略 */ }
+							setScreen("menu");
+						}
+						fetchState().then((s) => setState(s), () => { /* 忽略 */ });
+					})
+					.catch((e) => { setMsg("没删成：" + String((e && e.message) || e)); setBusy(false); });
+			};
+
 			return h("div", { className: "ff-projects" },
 				h("h2", undefined, "片库"),
 				/*
@@ -3136,6 +4154,11 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						className: "ff-proj",
 						onClick: () => enterProject(p),
 					},
+					h("span", {
+						className: "ff-proj-del",
+						title: "移到回收站（同级 _已删除，可找回）",
+						onClick: (ev) => { ev.stopPropagation(); delProject(p); },
+					}, "删除"),
 						h("div", { className: "t" }, p.title || p.id),
 						/*
 						 * 用户 2026-10-29：「出现人为改动 agent 就去自动对齐；没有要改的就什么都不显示；
@@ -3269,26 +4292,89 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			 *     只要会话本体还在，openSession 就能把它打开（round 2 已实测）。
 			 */
 			const ids0 = await readIds();
-			if (bound) {
-				let alive = false;
+			const lastKey = "ff.sess." + String(p.root || "");
+			let last = "";
+			try { last = String(localStorage.getItem(lastKey) || ""); } catch { /* 忽略 */ }
+			/*
+			 * ★ 先开**上次真正在看的那条**，再退到绑定号（2026-11-03 用户：
+			 *   「你改完片厂总是把我和agent的历史会话给弄没有」）。
+			 *
+			 * 现场：绑定号被并发叫醒换成一条空会话（39 条事件，全是唤醒），
+			 * 用户真正在聊的是另一条（258 条事件、74 次工具调用，直到 14:42 还在写）。
+			 * 重启后按绑定号打开 ⇒ 眼前只剩空会话 ⇒ 看起来历史没了。
+			 * ⇒ 客户端把自己上次打开的会话记在 localStorage，启动时优先它，
+			 *   并把宿主绑定改回它（agent 下次也回到这条）。
+			 */
+			const mainIs = (id) => {
 				try {
-					const snap = api.sessions && api.sessions.list ? api.sessions.list.getSnapshot() : null;
-					alive = !!(snap && snap.byId && snap.byId[bound]);
-				} catch { alive = false; }
-				const inWs = ids0.includes(bound);
-				diag("绑定检查：bound=" + bound + " 还在=" + alive + " 在工作区=" + inWs + " 工作区会话数=" + ids0.length);
-				if (alive || inWs) {
-					api.uiWorkspace.openSession(bound);
-					diag("打开原会话：" + bound);
-					// 不在名单里就顺手补进去，下次判断更干净（失败无所谓）
-					if (!inWs) {
-						try { api.uiWorkspace.insertSessionBefore && api.uiWorkspace.insertSessionBefore(bound, null); } catch { /* 忽略 */ }
-					}
-					return;
+					const s = api.sessions && api.sessions.list ? api.sessions.list.getSnapshot() : null;
+					if (!s) return null;
+					if (s.phase && s.phase !== "ready") return null; // 还没装完 ⇒ 不知道，别乱判
+					const row = s.byId && s.byId[id];
+					return !!(row && ((row.retainedBy && row.retainedBy.mainView) || 0) > 0);
+				} catch { return null; }
+			};
+			const waitMain = async (id, ms) => {
+				const t0 = Date.now();
+				let v = mainIs(id);
+				while (Date.now() - t0 < ms && v !== true) {
+					await new Promise((r) => setTimeout(r, 100));
+					v = mainIs(id);
 				}
+				return v;
+			};
+			/*
+			 * ★ 顺序：**先绑定号，再"上次在看的"**（2026-11-03 调过来）。
+			 *
+			 * 之前是"上次在看的"优先（那是并发叫醒把绑定号换空会话时的应急做法）。
+			 * 现在绑定号不会再被换人（ensureAgent 撞被占用就借界面那个 agent，
+			 * 不新建 id），所以**宿主记的那条才是准的**。
+			 * 反过来让 localStorage 优先，就会出现：宿主在 A 上跑 agent，
+			 * 界面停在 B —— 停止键停 B，等于没停。
+			 */
+			const candidates = [];
+			if (bound) candidates.push(bound);
+			if (last && last !== bound) candidates.push(last);
+			for (const id of candidates) {
+				/*
+				 * ★★ 2026-11-03：**不再预判"还能不能打开"** —— 直接开，再看它有没有真的切过去。
+				 *
+				 * 老写法 `aliveOf` 在启动早期会**假否定**（会话列表 phase=pending，
+				 * `byId` 里当然还没有这条）⇒ 判成"打不开" ⇒ 掉到 openWorkspace
+				 * ⇒ **新建一条空会话** ⇒ 用户眼前的历史又没了。
+				 * 现场：重启后 bindOnBoot 把 空白3 绑到了一条刚建的空会话 ebb0bdd3，
+				 * 而真正在聊的是 a8e2e17f（29 轮）—— 就是因为这个假否定。
+				 *
+				 * openSession 对"这会话真没了"是**无害空操作**，所以先开是对的；
+				 * 只有当列表已经 ready 且主视图确实没切过去，才认为这条真没了。
+				 */
+				api.uiWorkspace.openSession(id);
+				const ok = await waitMain(id, 1600);
+				diag("绑定检查：候选=" + id + " 切过去=" + String(ok) + " 工作区会话数=" + ids0.length);
+				if (ok === false) continue; // 只有**确知**没切过去才换下一条
+				try { localStorage.setItem(lastKey, id); } catch { /* 忽略 */ }
+				diag("打开会话：" + id + (id === last ? "（上次在看的）" : "（绑定号）"));
+				// 不在名单里就顺手补进去，下次判断更干净（失败无所谓）
+				if (!ids0.includes(id)) {
+					try { api.uiWorkspace.insertSessionBefore && api.uiWorkspace.insertSessionBefore(id, null); } catch { /* 忽略 */ }
+				}
+				if (id !== bound) {
+					await post("/filmflow/session", { root: p.root, sessionId: id }).catch(() => { /* 记不上下次还会优先 localStorage */ });
+				}
+				return;
 			}
 
-			// 第一次进这部片（或那条会话真的没了）：连上工作区，它会给一条会话
+			/*
+			 * 两条都没开成：**能用工作区里已有的会话就别新建**（新建 = 眼前历史又空一条）。
+			 * 只有这个工作区一条会话都没有，才是真的"第一次进这部片"。
+			 */
+			if (ids0.length) {
+				const sid = String(ids0[ids0.length - 1] || "");
+				api.uiWorkspace.openSession(sid);
+				diag("回落到工作区已有的会话：" + sid + "（共 " + ids0.length + " 条）");
+				await post("/filmflow/session", { root: p.root, sessionId: sid }).catch(() => { /* 忽略 */ });
+				return;
+			}
 			await api.uiWorkspace.openWorkspace(ws.workspaceId, undefined, { agentPreset: "filmflow" });
 			const ids = await readIds();
 			const sessionId = String(ids[ids.length - 1] || "");
@@ -3325,13 +4411,18 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 		 * @returns 画布浮层，或 null。
 		 */
 		/**
-		 * 「待确认提案」面板 —— 钉在会话框这一侧（用户 2026-10-22：
-		 * 「有些提案没出现」「让所有提案都在与 agent 的会话框里，不要到处都是」）。
+		 * 「待确认提案」面板 —— 钉在会话框这一侧。
 		 *
-		 * 为什么不能只靠工具卡：提案可能是
-		 *   · agent 调 filmflow_propose 提的（历史里有工具卡，但滚动上去就找不到了）
-		 *   · 宿主/我直接写进 proposals.json 的（没有任何工具卡 ⇒ 用户完全看不到）
-		 * ⇒ 这里直接轮询提案表，把**所有 pending** 集中显示，确认/驳回就地完成。
+		 * ★ 2026-11-03 恢复（用户：「你把正确的那个 agent 提案确认卡给弄掉了，
+		 *   结果保留了另一个藏在 step 流里的老选项卡」）。
+		 *
+		 * 之前 v2.58 撤掉它、只留 `tool.call.toolview` 的内联卡；但那张卡长在
+		 * agent 的工具调用里，被折叠进「已调用工具 / 步骤」那一串里 —— 用户根本看不到，
+		 * 于是「提案在哪、点哪确认」全凭自己去翻折叠块。
+		 * 这里直接轮询提案表，把**本片所有 pending** 集中钉在会话框一侧：
+		 * 一眼能看见、就地确认/驳回。
+		 *
+		 * 只查当前这部片（`?root=`）：以前不带 root 会把别的片的待确认也列进来。
 		 * @returns 面板，或 null（没有待确认时完全不占地方）。
 		 */
 		function ProposalsDock() {
@@ -3344,7 +4435,8 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				if (screen !== "work") return undefined;
 				let alive = true;
 				const tick = () => {
-					fetch("/filmflow/proposals", { headers: { accept: "application/json" } })
+					const r0 = String(ENTERED || "");
+					fetch("/filmflow/proposals" + (r0 ? "?root=" + encodeURIComponent(r0) : ""), { headers: { accept: "application/json" } })
 						.then((r) => r.json())
 						.then((j) => {
 							if (!alive) return;
@@ -3364,7 +4456,17 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			const decide = async (pr, action) => {
 				setBusy(pr.id);
 				try {
-					await post("/filmflow/approve", { root: pr.root || root, id: pr.id, action });
+					const res = await post("/filmflow/approve", { root: pr.root || root, id: pr.id, action });
+					/*
+					 * 宿主办不到（目标节点已经不在了）时回 action:'invalid' ——
+					 * 不能当成功一样把卡静默拿掉，否则用户只会觉得「我点了但画布没变化」（2026-11-03）。
+					 */
+					if (res && res.action === "invalid") {
+						setList((old) => old.map((x) => (x.id === pr.id
+							? { ...x, err: "没执行：" + String(res.reason || "目标节点已不存在") }
+							: x)));
+						return;
+					}
 					setList((old) => old.filter((x) => x.id !== pr.id));
 				} catch (e) {
 					/* ★ 失败必须让人看见：以前这里静默吞掉，用户只会觉得"点了没反应" */
@@ -3382,7 +4484,9 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					const s = pr.struct || {};
 					const isStruct = String(pr.kind || "") === "struct";
 					const what = isStruct
-						? (s.op === "delete" ? "删除节点 " + String(s.key || "")
+						? (Array.isArray(s.keys) && s.keys.length > 1
+							? "删除 " + s.keys.length + " 个节点"
+							: s.op === "delete" ? "删除节点 " + String(s.key || "")
 							: s.op === "add" ? "新建节点（挂在 " + String(s.at || "") + " 下）"
 							: s.op === "move" ? (s.dir === "up" ? "上移 " : "下移 ") + String(s.key || "")
 							: s.op === "rename" ? "改名 " + String(s.key || "") + " → " + String(s.title || "")
@@ -3405,6 +4509,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 							}, "驳回")));
 				})));
 		}
+
 		/* ── 媒体查看器（全屏）──────────────────────────────────── */
 		let VIEWER = null;                       // { root, item }
 		const viewerSubs = new Set();
@@ -4043,6 +5148,55 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			// 记住上次进的是哪部片（刷新之后控制条上的「工序」仍然可点）
 			try { ENTERED = localStorage.getItem("filmflow.entered") || ""; } catch { /* 忽略 */ }
 
+			/*
+			 * ★ 启动/刷新之后也要把会话接回来（2026-11-03）。
+			 *
+			 * 原来只有「在项目菜单里点一部片」才 bindSession ⇒ 刷新、重启后界面停在
+			 * DSH 自己记住的那条会话上。会话一旦被换过（并发叫醒时代，见 index.js 的 ensureAgent），
+			 * 那条就是几乎空的 —— 用户看到的就是「历史会话被弄没了」。
+			 * ⇒ 开到这部片就把绑定号/上次在看的会话接回来。服务可能还没就绪，失败退避重试两轮。
+			 */
+			const bindOnBoot = async (attempt = 1) => {
+				/*
+				 * ★★ 2026-11-03：**认哪部片，以宿主为准**（画布也是按 `state.current` 画的）。
+				 *
+				 * 现场（trace 10:19:27 → 10:19:28）：宿主把工具绑在 空白3、画布画的是 空白3，
+				 * 右侧会话却被绑到 `session-bb0c7e2d`（空白4 的），因为
+				 * `localStorage["filmflow.entered"]` 是旧的。
+				 *
+				 * 后果不只是"历史不对"：**DSH 的停止键停的是界面上那条会话**。
+				 * 界面显示 A、agent 在 B 上跑 ⇒ 按停止 = 对一个空闲会话 cancel
+				 * ⇒ `session/not-found` 被 client 静默吞掉 ⇒ 看着就是「停止键没用」。
+				 * ⇒ 两边必须指同一条片子（进而同一条会话）。
+				 */
+				let root = "";
+				let hostCur = "";
+				try {
+					const r = await fetch("/filmflow/state", { headers: { accept: "application/json" } });
+					if (r.ok) {
+						const st = await r.json();
+						hostCur = String((st && st.current) || "");
+						root = hostCur;
+					}
+				} catch { /* 服务还没起来：退回到 localStorage */ }
+				if (!root) root = ENTERED;
+				if (!root) return;
+				if (root !== ENTERED) {
+					ENTERED = root;
+					try { localStorage.setItem("filmflow.entered", root); } catch { /* 忽略 */ }
+				}
+				// 宿主还不知道是哪部（重启后 CURRENT 空）⇒ 告诉它，别让它靠猜
+				if (hostCur !== root) {
+					post("/filmflow/select", { root }).catch(() => { /* 失败的话画布会落到 list[0]，下次刷再说 */ });
+				}
+				bindSession({ root }).catch((e) => {
+					const msg = String((e && e.message) || e);
+					diag("启动绑定会话失败（第 " + attempt + " 次）：" + msg);
+					if (attempt < 3) setTimeout(() => bindOnBoot(attempt + 1), 1500 * attempt);
+				});
+			};
+			setTimeout(() => bindOnBoot(), 1200);
+
 			ctx.effect(() => {
 				const style = document.createElement("style");
 				style.textContent = CSS;
@@ -4100,6 +5254,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				order: 10,
 				locale: NS,
 			}, MenuOverlay));
+
 			// 待确认提案面板：钉在会话框这一侧（order 8，压在画布之上、菜单之下）。
 			ctx.slots.inject("shell.overlay", () => ctx.slots.register({
 				name: "shell.overlay",
@@ -4148,12 +5303,14 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				}, HeroMark));
 			} catch (e) { /* 槽位不在就退回官方占位，不影响其它功能 */ }
 
-			// 提案卡：长在 agent 调 filmflow_propose 的那张工具卡上（官方工具树里）。
-			ctx.slots.inject("tool.call.toolview", () => ctx.slots.register({
-				name: "tool.call.toolview",
-				key: "filmflow_propose",
-				locale: NS,
-			}, ProposeToolRow));
+			/*
+			 * ★ 内联提案卡**已停用**（2026-11-03 用户：「你把正确的那个 agent 提案确认卡给弄掉了，
+			 *   结果保留了另一个藏在 step 流里的老选项卡」）。
+			 *
+			 * `tool.call.toolview` 的卡是长在 agent 工具调用里的，被折叠进「已调用工具 / 步骤」，
+			 * 用户根本找不到；集中确认改由 `ProposalsDock`（会话框一侧，order 8）负责。
+			 * 组件 `ProposeToolRow` 先留着不注册（哪天要先确认再挂回去），别再两条路同时出卡。
+			 */
 		}
 
 		exports.PANEL_ID = PANEL_ID;

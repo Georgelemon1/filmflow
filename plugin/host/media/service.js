@@ -450,6 +450,43 @@ export function createMediaService(opts) {
   };
 
   /** 取消（本地立刻生效；上游任务通常会继续跑完，钱不退）。 */
+  /**
+   * 起一个**不挂在工序树上**的生成任务（2026-11-03：分镜表的行内生成）。
+   *
+   * 表行不是节点，但生成器要的是「一个有 key/title/media 的对象」，而 key 又是
+   * 资产库和用量记录的归属键 ⇒ 表行统一用 `镜<镜号>` 当 key：
+   *   · assets.json 里按 node='镜12' 记，`latestOf` 自然就能取到这行的最新成片；
+   *   · 删了行以后这些资产仍在素材库里（不静默丢）。
+   * @param root 片子根
+   * @param spec `{ key, title, media }`
+   */
+  const startJobFor = (root, spec) => {
+    const key = String((spec && spec.key) || '').trim();
+    if (!key) throw new Error('起生成任务要给 key');
+    const media = (spec && spec.media) || {};
+    if (!String(media.prompt || '').trim()) throw new Error('这一行还没有提示词');
+    const id = jobId(root, key);
+    const old = jobs.get(id);
+    if (old && (old.status === 'running' || old.status === 'queued')) {
+      throw new Error('这一行正在生成，等它结束或先取消');
+    }
+    const node = {
+      key,
+      title: String((spec && spec.title) || key),
+      kind: 'media',
+      media: { ...media },
+      promptFallback: String((spec && spec.promptFallback) || ''),
+    };
+    const job = {
+      id, root, key, node,
+      status: 'queued', progress: '排队中…',
+      createdAt: new Date().toISOString(),
+    };
+    jobs.set(id, job);
+    pump();
+    return { ok: true, jobId: id };
+  };
+  
   const cancelJob = (root, key) => {
     const job = jobs.get(jobId(root, key));
     if (!job) return { ok: false, error: '没有在跑的任务' };
@@ -581,6 +618,7 @@ export function createMediaService(opts) {
     usage,
     readUsage,
     startJob,
+    startJobFor,
     cancelJob,
     listJobs,
     listAssets,

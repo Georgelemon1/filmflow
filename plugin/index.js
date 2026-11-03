@@ -36,11 +36,14 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  unlinkSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { inflateRawSync } from 'node:zlib';
+import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { createMediaService, contentTypeOf } from './host/media/service.js';
@@ -68,6 +71,7 @@ import {
   canAddUnder,
   childrenWarnings,
   templateIdOf,
+  OPTIONAL_DEP_ROLES,
 } from './host/node-rules.js';
 import { defaultProject } from './host/default-project.js';
 
@@ -427,6 +431,218 @@ function autoWireDep(stages, role, opts = {}) {
  *
  * 迁移完写 `.film/structure-v2.json` 标记；启动时只跑没标记的片子。
  */
+/**
+ * 分镜表列升级（2026-11-03：8 列 → 7 列：去场景/结束状态，加备注，时长前移）。
+ *
+ * 老文件表头是 6 列（镜号/场景/景别/画面/台词/声音/时长），模板现在是 8 列。
+ * `parseTable` 在按标签找不到时会**退回按位置**填 —— 那会把「画面」塞进「运镜」，
+ * 内容看着还在、其实全错位。所以这里按表头**逐列认名**重排，缺的格子留空。
+ * 只动那一张表，其它正文原样保留；改之前备份。
+ * @returns {{changed:boolean, backup?:string, error?:string}}
+ */
+/**
+ * 旧式生成节点 → 表行（2026-11-03：生成不再是节点）。
+ *
+ * 用户定的是「生成节点就内化成一格按钮和一格预览框」，所以顶点下面的 `video-gen`
+ * 节点要退场。搬家规则：
+ *   · 节点标题里能认出镜号（`镜07` / `镜7` / `#07`）→ 把它的提示词和模型写进
+ *     `.film/generation.json` 的该行（**提示词一个字都不丢**）；
+ *   · 认不出镜号的节点**不动**（宁可留着，也不瞎猜着删）；
+ *   · 搬完把节点从 project.json 里摘掉（正文文件留在 视频提示词/ 里，不删）。
+ * @returns {{moved:number, kept:number}}
+ */
+function migrateGenNodesToRows(root, decl) {
+  const out = { moved: 0, kept: 0 };
+  const gen = readGen(root);
+  const noOf = (title) => {
+    const m = /(?:镜|#)\s*0*(\d{1,4})/.exec(String(title || ''));
+    return m ? String(Number(m[1])) : '';
+  };
+  const mediaOf = (n) => (n && n.media && typeof n.media === 'object' ? n.media : {});
+  const drop = (list) => {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const n = list[i];
+      if (n && String(n.nodeRole || '') === 'gen-video') {
+        const no = noOf(n.title);
+        if (!no) {
+        	/*
+        	 * 认不出镜号：两种情况 ——
+        	 *   ① 模板自带的「生成视频」阶段（空壳：没提示词、没子节点）⇒ **删掉**，
+        	 *      新模型里生成是表里的一格，不该再有这个阶段；
+        	 *   ② 用户自己写了东西的生成节点 ⇒ **留着**，宁可多一个，也不瞎猜着删。
+        	 */
+        	const mt = mediaOf(n);
+        	const hasContent = String(mt.prompt || '').trim() || (Array.isArray(n.children) && n.children.length);
+        	if (!hasContent) { list.splice(i, 1); out.moved += 1; continue; }
+        	out.kept += 1;
+        	continue;
+        }
+        const md = mediaOf(n);
+        const text = String(md.prompt || '').trim();
+        const cur = gen.rows[no] || { attempts: [] };
+        if (text) cur.prompt = text;   // 节点里的提示词是真内容，覆盖旧的占位
+        if (!cur.model && md.model) cur.model = String(md.model);
+        cur.type = 'video';
+        cur.fromNode = String(n.key || '');
+        cur.updatedAt = new Date().toISOString();
+        gen.rows[no] = cur;
+        list.splice(i, 1);
+        out.moved += 1;
+        continue;
+      }
+      if (n && Array.isArray(n.children)) drop(n.children);
+    }
+  };
+  drop(decl.stages || []);
+  if (out.moved) writeGen(root, gen);
+  return out;
+}
+
+function migrateStoryboardTable(root, decl) {
+  const out = { changed: false };
+  const tplInfo = (() => {
+    try {
+      const list = readTemplates();
+      const tpl = list.find((x) => String(x.id) === 'storyboard');
+      const cs = tpl && tpl.shape && Array.isArray(tpl.shape.columns) ? tpl.shape.columns : [];
+      return {
+        cols: cs.map((c) => ({ key: String(c.key), label: String(c.label || c.key), ...(c.width ? { width: String(c.width) } : {}) })),
+        doctrine: tpl && tpl.doctrine ? String(tpl.doctrine) : '',
+        note: tpl && tpl.note ? String(tpl.note) : '',
+      };
+    } catch { return { cols: [], doctrine: '', note: '' }; }
+  })();
+  const colsOf = tplInfo.cols;
+  if (!colsOf.length) return out;
+  /*
+   * ★★ 表头**按名字认列**（2026-11-03 第三轮改列）。
+   *
+   * 列还在变，老文件不能跟着烂。删掉的两列**不静默丢数据**：
+   *   · 场景     → 并进「画面内容」：`A室｜唐老板；搓着手笑`
+   *   · 结束状态 → 并进「备注」：`结束状态：…`
+   * 认不出的表头列则直接丢（它们本来就没进过任何产物）。
+   */
+  const ALIAS = new Map([
+    ['镜号', 'no'],
+    ['时长', 'dur'], ['时长（秒）', 'dur'], ['时长(秒)', 'dur'],
+    ['景别', 'shot'],
+    ['运镜', 'move'], ['机位', 'move'], ['机位/运镜', 'move'], ['机位·运镜', 'move'],
+    ['画面', 'pic'], ['画面内容', 'pic'],
+    ['台词', 'line'], ['台词/声音', 'line'], ['台词·声音', 'line'],
+    ['备注', 'note'],
+    ['场景', 'scene'], // 只用来并进 pic
+    ['结束状态', 'end'], // 只用来并进 note
+  ]);
+  const keyOf = (label) => ALIAS.get(String(label || '').trim().replace(/\s+/g, '')) || '';
+  /*
+   * 哪些节点算"分镜表"：
+   *   ① 新格式：`template: storyboard`（列从模板来）
+   *   ② 老片子：没有 template，只有**内联 shape**（自己写死了 6 列），
+   *      但 md 指向 `工艺/分镜脚本.md` —— 这类也要一起换（雨夜便利店就是这种）。
+   *      同时把内联列换成新 7 列，否则文件是 7 列、画布还是按 6 列画。
+   */
+  const isStoryboardNode = (n) =>
+    !!n
+    && (String(n.template || '') === 'storyboard'
+      || (n.shape && String(n.shape.kind || '') === 'table'
+        && [].concat(n.md || []).some((f) => String(f).replace(/\\/g, '/').endsWith('工艺/分镜脚本.md'))));
+  const walk = (n) => {
+    if (isStoryboardNode(n)) {
+      const files = [].concat(n.md || []).map(String);
+      for (const rel of files) {
+        const abs = join(root, ...rel.split('/'));
+        let text;
+        try { text = readFileSync(abs, 'utf8'); } catch { continue; }
+        const lines = text.split(/\r?\n/);
+        /* 找第一张表 */
+        let head = -1;
+        for (let i = 0; i < lines.length - 1; i++) {
+          if (!/^\s*\|/.test(lines[i])) continue;
+          if (!/^\s*\|[\s:|-]*$/.test(lines[i + 1])) continue;
+          head = i; break;
+        }
+        if (head < 0) continue;
+        let end = head + 1;
+        while (end + 1 < lines.length && /^\s*\|/.test(lines[end + 1])) end++;
+        const split = (s) => String(s).replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((x) => x.trim());
+        const oldHead = split(lines[head]);
+        const same = oldHead.length === colsOf.length && colsOf.every((c, i) => oldHead[i] === c.label);
+        if (same) continue;
+        const oldKeys = oldHead.map(keyOf);
+        const sceneAt = oldKeys.indexOf('scene');
+        const endAt = oldKeys.indexOf('end');
+        const rows = [];
+        for (let i = head + 2; i <= end; i++) {
+          const cells = split(lines[i]);
+          const rec = {};
+          for (const c of colsOf) rec[c.key] = '';
+          for (let j = 0; j < oldHead.length; j++) {
+            const k = oldKeys[j];
+            if (!k || k === 'scene' || k === 'end') continue;
+            const v = String(cells[j] == null ? '' : cells[j]).trim();
+            if (v && !rec[k]) rec[k] = v;
+          }
+          const scene = sceneAt >= 0 ? String(cells[sceneAt] == null ? '' : cells[sceneAt]).trim() : '';
+          if (scene) rec.pic = scene + (rec.pic ? '；' + rec.pic : '');
+          const ended = endAt >= 0 ? String(cells[endAt] == null ? '' : cells[endAt]).trim() : '';
+          if (ended) rec.note = '结束状态：' + ended + (rec.note ? '；' + rec.note : '');
+          rec.dur = String(rec.dur || '').replace(/\s*(s|sec|秒)$/i, '').trim();
+          rows.push(rec);
+        }
+        const mk = (cells) => '| ' + cells.join(' | ') + ' |';
+        const next = [];
+        next.push(mk(colsOf.map((c) => c.label)));
+        next.push(mk(colsOf.map(() => '---')));
+        for (const rec of rows) next.push(mk(colsOf.map((c) => String(rec[c.key] == null ? '' : rec[c.key]))));
+        const rebuilt = [...lines.slice(0, head), ...next, ...lines.slice(end + 1)].join('\n');
+        try {
+          const bak = backup(root, abs);
+          writeFileSync(abs, rebuilt, 'utf8');
+          out.changed = true;
+          out.backup = bak;
+          trace('[分镜表升级] ' + rel + ' ' + oldHead.length + '列 → ' + colsOf.length + '列（' + oldHead.join('/') + ' → ' + colsOf.map((c) => c.label).join('/') + '）');
+        } catch (e) {
+          out.error = String((e && e.message) || e);
+        }
+      }
+    }
+    for (const c of (n && n.children) || []) walk(c);
+  };
+  for (const s of (decl && decl.stages) || []) walk(s);
+  /*
+   * 老片子的内联列：跟着换成新 7 列（返回 declChanged，调用方负责写回 project.json）。
+   * 只在节点自带 shape.columns 时动；用模板的不用动（模板已经改了）。
+   */
+  const syncInline = (n) => {
+    if (isStoryboardNode(n) && n.shape && Array.isArray(n.shape.columns)) {
+      const cur = n.shape.columns.map((c) => String((c && c.label) || ''));
+      const want = colsOf.map((c) => c.label);
+      if (cur.join('|') !== want.join('|')) {
+        n.shape.columns = colsOf.map((c) => ({ ...c, label: c.label }));
+        out.declChanged = true;
+      }
+    }
+    /*
+     * ★ 内联 doctrine 也会过期：每条分镜节点在 project.json 里都存了一份自己的指令
+     *   （agent 读的是它，不是模板的）。列/规矩一改，那份里"表头必须一字不差"的字符串
+     *   就是**错的指令** —— agent 会照着它写出旧表头。
+     *   只在"看起来是自动生成的那份"时覆盖（开头固定是 `【任务】把剧本拆成镜头。`）；
+     *   用户自己改过的指令不动。原文由调用方先备份 project.json。
+     */
+    if (isStoryboardNode(n) && tplInfo.doctrine && String(n.doctrine || '') !== tplInfo.doctrine) {
+      const d = String(n.doctrine || '');
+      if (!d || d.startsWith('【任务】把剧本拆成镜头。')) {
+        out.doctrineSynced = (out.doctrineSynced || 0) + 1;
+        n.doctrine = tplInfo.doctrine;
+        out.declChanged = true;
+      }
+    }
+    for (const c of (n && n.children) || []) syncInline(c);
+  };
+  for (const s of (decl && decl.stages) || []) syncInline(s);
+  return out;
+}
+
 function migrateProjectStructure(root, opts = {}) {
   const marker = join(root, '.film', 'structure-v2.json');
   if (!opts.force && existsSync(marker)) return { ok: true, root, skipped: true };
@@ -502,6 +718,8 @@ function migrateProjectStructure(root, opts = {}) {
       fixes.push('去掉自依赖：' + (n.title || n.key));
     }
     if (!DEP_RULES[role]) continue;
+    /* 视频/图片生成节点的依赖是可空的（2026-11-02）：没依赖就原样留着，不替它接线。 */
+    if (OPTIONAL_DEP_ROLES.has(role) && !keys.length) continue;
     const depRoles = keys.map((k) => roleOfKey.get(k)).filter(Boolean);
     if (checkDeps(role, depRoles).ok) continue;
     const cand = autoWireDep(decl.stages, role, { preferredKey: it.parent ? String(it.parent.key || '') : '' });
@@ -509,7 +727,7 @@ function migrateProjectStructure(root, opts = {}) {
       n.dependsOn = [...new Set([...keys, cand.key])];
       fixes.push('接依赖：' + (n.title || n.key) + ' → ' + (titleOfKey.get(cand.key) || cand.key));
     } else {
-      warnings.push((n.title || n.key) + '：找不到' + DEP_RULES[role].label + '节点可依赖');
+      warnings.push((n.title || n.key) + '：找不到' + String(DEP_RULES[role].label).replace(/节点$/, '') + '节点可依赖');
     }
   }
 
@@ -634,7 +852,7 @@ function placementIssue(stages, templates, tplId, at, selfTitle) {
     return { ok: false, error: '没有这个模板：' + id + '。先用 filmflow_templates 看可用的 id。' };
   }
   const atKey = String(at || '');
-  const loc = atKey ? locateNode(stages, atKey) : null;
+  const loc = atKey ? locateNodeLoose(stages, atKey) : null;
   if (atKey && !loc) return { ok: false, error: '没有这个父节点：' + atKey };
 
   const tplRole = roleOfTemplate(tpl);
@@ -730,6 +948,8 @@ function validateAddProposal(root, op) {
   const depRoles = depKeys.map((k) => roleMap.get(k)).filter(Boolean);
   const chk = checkDeps(role, depRoles);
   if (!chk.ok) {
+    /* 视频/图片生成节点允许没有任何依赖（2026-11-02）。 */
+    if (!depKeys.length && OPTIONAL_DEP_ROLES.has(normalizeRole(role))) return;
     if (!depKeys.length) {
       const cand = autoWireDep(decl.stages, role, { preferredKey: loc ? String(loc.node.key || '') : '' });
       if (!cand) throw new Error(chk.error + '。先在项目里建一个' + chk.label + '节点，再把生成节点挂上去。');
@@ -960,6 +1180,51 @@ function resolveGlob(root, glob) {
 const MAX_TEXT = 200000;
 
 /** 按上限裁一段文本，裁了就明说（正常内容永远裁不到）。 */
+/**
+ * Word（.docx）取正文 —— docx 就是个 zip，正文在 word/document.xml 里。
+ * 2026-11-02 加：参考资料里的 Word 原稿要能被 agent 读，不能把二进制当文本。
+ * @param abs 绝对路径
+ * @returns 纯文本（段落之间换行）
+ */
+function docxToText(abs) {
+  const buf = readFileSync(abs);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= 0 && i > buf.length - 70000; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('不是有效的 .docx（找不到 zip 中央目录）');
+  const count = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+  let xml = '';
+  for (let i = 0; i < count; i++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) break;
+    const method = buf.readUInt16LE(p + 10);
+    const compSize = buf.readUInt32LE(p + 20);
+    const nameLen = buf.readUInt16LE(p + 28);
+    const extraLen = buf.readUInt16LE(p + 30);
+    const commentLen = buf.readUInt16LE(p + 32);
+    const localOff = buf.readUInt32LE(p + 42);
+    const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
+    p += 46 + nameLen + extraLen + commentLen;
+    if (name !== 'word/document.xml') continue;
+    const lNameLen = buf.readUInt16LE(localOff + 26);
+    const lExtraLen = buf.readUInt16LE(localOff + 28);
+    const start = localOff + 30 + lNameLen + lExtraLen;
+    const rawZip = buf.subarray(start, start + compSize);
+    xml = (method === 0 ? rawZip : inflateRawSync(rawZip)).toString('utf8');
+    break;
+  }
+  if (!xml) throw new Error('这个 .docx 里没有 word/document.xml（可能不是 Word 文档）');
+  return xml
+    .replace(/<w:tab\/>/g, '\t')
+    .replace(/<w:br\/>|<\/w:p>/g, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function cap(text) {
   const t = String(text == null ? '' : text);
   return t.length > MAX_TEXT ? t.slice(0, MAX_TEXT) + '\n…（超长已截断）' : t;
@@ -1463,9 +1728,25 @@ function attachShape(node, text) {
     node && node.shape && typeof node.shape === 'object' ? node.shape : { kind: 'text' };
   const src = String(text ?? '');
   const empty = src.trim() === '';
-  const doc = empty ? emptyDoc(shape) : parseShape(src, shape);
+  let doc = empty ? emptyDoc(shape) : parseShape(src, shape);
+  /*
+   * ★ 表形态**不许退化成文本框**（2026-11-03 用户截图：创建一个分镜脚本节点，
+   *   里面只有一个 a，画布上就是一个普通输入框 —— 表头和「+ 加一行」全没了）。
+   *
+   * 原因：`parseTable` 在文件里没有 markdown 表格时返回 null（这是对的，它不知道那是不是表），
+   * 于是 doc 变成 text、客户端按纯文本渲染。可形态声明的是 table ⇒ 哪怕还没写表，
+   * 也该显示 6 列表头和加行按钮。
+   * ⇒ 表形态解析失败时改用**空表骨架**，并把非表格的原文挂在 `leftover` 上一起显示，
+   *   不把用户已经写下的字吞掉。
+   */
+  let leftover = '';
+  if (!doc && String(shape.kind || '') === 'table') {
+  	doc = emptyDoc(shape);
+  	leftover = src.trim().slice(0, 2000);
+  }
   node.shape = shape;
   node.doc = doc;
+  if (leftover) node.leftover = leftover;
   node.shapeOk = empty || !!doc;
   if (shape.kind !== 'text' && !empty && !doc) {
     node.hint = '这份内容不符合本节点的「' + shape.kind + '」形态，先按纯文本显示。';
@@ -1493,6 +1774,43 @@ function buildContent(root, node, path) {
    *    （2026-10-27 实测：短剧预设的「分集剧本」一个子节点都不出）。
    */
   const globs = [].concat(node?.files || []).map((g) => String(g)).filter(Boolean);
+
+  /*
+   * 参考资料（refs glob，2026-11-02）：列出「参考/」里有哪些文件，**不建子节点** ——
+   * 用户要求它跟其他节点没有任何互动，所以只把文件名摊在自己正文里，agent 自己读。
+   */
+  const refSrc = (() => {
+    const own = [].concat(node?.refs || []).filter(Boolean);
+    if (own.length) return own;
+    /* 老节点没落 refs：按模板 id 回查（模板改了也不用迁移数据） */
+    try {
+      const list = readTemplates();
+      const id = templateIdOf(node, list);
+      const tpl = list.find((x) => String(x.id) === String(id));
+      return tpl && tpl.refs ? [String(tpl.refs)] : [];
+    } catch { return []; }
+  })();
+  const refGlobs = refSrc.map((g) => String(g)).filter(Boolean);
+  const refFiles = [];
+  let refSummary = '';
+  if (refGlobs.length) {
+    for (const g of refGlobs) {
+      const r = resolveGlob(root, g);
+      const dirRel = String(g).replace(/\\/g, '/').replace(/\/[^/]*$/, '');
+      for (const name of r.all || []) {
+        const relPath = (dirRel ? dirRel + '/' : '') + name;
+        let bytes = 0;
+        try { bytes = statSync(join(root, ...relPath.split('/'))).size; } catch { bytes = 0; }
+        refFiles.push({ path: relPath, name: String(name), ext: String(name).split('.').pop().toLowerCase(), bytes });
+      }
+    }
+    if (true) {
+      refSummary = refFiles.length
+        ? ('参考文件（' + refFiles.length + ' 个）：\n' + refFiles.map((f) => '- ' + f.path + ' · ' + (f.bytes ? Math.max(1, Math.round(f.bytes / 1024)) + ' KB' : '空') + (/\.(png|jpe?g|webp|gif)$/i.test(f.path) ? '（图 · 绝对路径：' + join(root, ...String(f.path).split('/')) + '）' : '')).join('\n')
+          + '\n\nagent 用 filmflow_read 读原文；本节点不产出、也不许改这些文件。')
+        : ('还没有放参考文件。把用户之前写好的稿子放进项目里的「参考/」目录（.docx / .txt / .md 都行），刷新即出现。');
+    }
+  }
 
   /*
    * 声明了非 `text` 形态 → **整份文件归本节点，不按标题切子节点**。
@@ -1571,7 +1889,7 @@ function buildContent(root, node, path) {
     return {
       role: '',
       // 退回纯文本时给的就是**整份原始文件**，一个字都不少
-      text: cap(raw),
+      text: refSummary || cap(raw),
       src: rel,
       line: 0,
       via: 'md',
@@ -1579,7 +1897,9 @@ function buildContent(root, node, path) {
       shape: sn.shape,
       doc: sn.doc,
       shapeOk: sn.shapeOk,
+      leftover: sn.leftover || '',
       shapeHint: sn.hint || '',
+      refFiles,
       children: listKids,
     };
   }
@@ -1698,20 +2018,23 @@ function buildContent(root, node, path) {
     }
   }
 
+
   // 形态：这个节点的正文该用哪种编辑形态（规范见 形态规范.md）
   const shaped = attachShape({ shape: node?.shape }, text);
 
   // 本节点的正文与它的子节点一起交出去
   return {
     role,
-    text: cap(text),
+    text: refSummary || cap(text),
     src,
     line,
     via,
     shape: shaped.shape,
     doc: shaped.doc,
     shapeOk: shaped.shapeOk,
+    leftover: shaped.leftover || '',
     shapeHint: shaped.hint || '',
+    refFiles,
     children,
   };
 }
@@ -1757,6 +2080,54 @@ function backup(root, abs) {
  * @param decl 工序声明
  * @param abs 待写文件的绝对路径
  */
+/**
+ * 这个绝对路径是不是**参考资料**（project.json 里 `refs` 声明的那些 glob 覆盖到的文件）。
+ *
+ * 用户 2026-11-03：「参考资料里实际上多半包括非常多东西……agent 虽然不应该有更改参考资料的权限，
+ * 但是除此之外应该纳入自动化范围」。
+ *
+ * 所以这里只回答「能不能写」：参考文件对 agent **只读**。
+ * 以前的洞：`isNodeArtifact` 只认 `md`，而参考文件是 `refs` 声明的 ⇒
+ * `filmflow_write({path:"参考/剧本.txt"})` 能把用户的原稿直接覆盖掉（docx 还会被写坏）。
+ */
+function isReferenceFile(root, decl, abs) {
+  const low = String(abs || '').replace(/\\/g, '/').toLowerCase();
+  const rel = relative(root, abs).replace(/\\/g, '/').toLowerCase();
+  const hit = (globs) => {
+    for (const g0 of [].concat(globs || []).map(String).filter(Boolean)) {
+      const g = g0.replace(/\\/g, '/');
+      const cut = g.lastIndexOf('/');
+      const dirPart = cut >= 0 ? g.slice(0, cut) : '';
+      if (!dirPart) continue;
+      const dirLow = dirPart.toLowerCase();
+      if (rel === dirLow || rel.startsWith(dirLow + '/')) return true;
+    }
+    return false;
+  };
+  const walk = (n) => {
+    if (hit(n && n.refs)) return true;
+    for (const c of (n && n.children) || []) if (walk(c)) return true;
+    return false;
+  };
+  return (Array.isArray(decl && decl.stages) ? decl.stages : []).some(walk);
+}
+
+/** 本片参考资料覆盖到的文件（给唤醒文案用）。 */
+function referenceList(root, decl) {
+  const out = [];
+  const push = (list) => {
+    for (const g of [].concat(list || []).map(String).filter(Boolean)) {
+      const dirRel = g.replace(/\\/g, '/').replace(/\/[^/]*$/, '');
+      let r;
+      try { r = resolveGlob(root, g); } catch { continue; }
+      for (const name of r.all || []) out.push((dirRel ? dirRel + '/' : '') + name);
+    }
+  };
+  const walk = (n) => { push(n && n.refs); for (const c of (n && n.children) || []) walk(c); };
+  for (const s of (Array.isArray(decl && decl.stages) ? decl.stages : [])) walk(s);
+  return [...new Set(out)];
+}
+
 function isWritable(root, decl, abs) {
   const low = abs.toLowerCase();
   const rel = relative(root, abs).replace(/\\/g, '/');
@@ -1818,6 +2189,59 @@ function firstHeadingLine(text) {
 function startsWithThatHeading(text, headLine) {
   const first = firstHeadingLine(text);
   return !!first && !!headLine && first === String(headLine).trim();
+}
+
+/**
+ * 这次写回**有没有实质内容改动** —— 决定要不要叫醒 agent（2026-11-03）。
+ *
+ * 用户：「我就手动添加一行空表格程序有必要触发 agent 吗？」
+ * 不需要。加一行空行是**版面操作**，没有内容要它判断；可原来的 `/filmflow/edit`
+ * 是"写成功就叫醒"，于是每加一行空行都叫一次，它只能回一句「没有下游节点受影响」——
+ * 纯噪音，还烧 token。删空行、调格式同理。
+ *
+ * 判据（按"整行多重集差"比，不按行号比 —— 插一行会让后面全部错位）：
+ *   · 增删的行如果都是「空白行 / 表格分隔行 / 除第一列（镜号）外全空」⇒ 不算
+ *   · 其余任何一行增删或改字 ⇒ 算
+ *
+ * @param before - 写之前的文件正文（文件本来不存在时传空串）
+ * @param after - 写之后的文件正文
+ * @returns {boolean} 有实质内容
+ */
+function editHasSubstance(before, after) {
+  const lines = (s) => String(s || '').replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(/\s+$/, ''));
+  const b = lines(before);
+  const a = lines(after);
+  const count = (arr) => {
+    const m = new Map();
+    for (const l of arr) m.set(l, (m.get(l) || 0) + 1);
+    return m;
+  };
+  const rate = (x, y) => {
+    // y 里有、x 里没有的（按重数算）
+    const ym = count(y);
+    for (const l of x) {
+      const n = ym.get(l) || 0;
+      if (n > 0) ym.set(l, n - 1);
+    }
+    const out = [];
+    for (const [l, n] of ym) for (let i = 0; i < n; i++) out.push(l);
+    return out;
+  };
+  /** 这一行算不算"空"（没有内容可判断）。 */
+  const blank = (line) => {
+    const t = String(line || '').trim();
+    if (!t) return true;
+    if (!t.startsWith('|')) return false;
+    const cells = t.replace(/^\|/, '').replace(/\|$/, '').split('|').map((x) => x.trim());
+    // 表格分隔行：| --- | :--: | …
+    if (cells.every((x) => /^:?-{2,}:?$/.test(x) || x === '')) return true;
+    // 除第一列（镜号）外全空 —— 就是"加了一行空行"
+    return cells.slice(1).every((x) => x === '');
+  };
+  const added = rate(b, a);
+  const removed = rate(a, b);
+  const significant = (ls) => ls.some((l) => !blank(l));
+  return significant(added) || significant(removed);
 }
 
 /**
@@ -2053,6 +2477,35 @@ function locateNode(stages, key) {
   };
   walk(stages);
   return found;
+}
+
+/**
+ * 宽松定位（2026-11-03）：先按 key，再按**显示编号**（1.3），最后按**唯一标题**。
+ *
+ * 为什么要它：agent 提结构提案时引用的是它看到的编号/标题，key 早就变了
+ * （空人名节点的 key 是 p / p-2 …），结果「确认」后报「没有这个节点」，
+ * 提案被作废、画布纹丝不动 —— 用户只会说「我批准了但没变化」。
+ */
+function locateNodeLoose(stages, ref) {
+  const hit = locateNode(stages, ref);
+  if (hit) return hit;
+  const want = String(ref ?? '').trim();
+  if (!want) return null;
+  const byNo = [];
+  const byTitle = [];
+  const walk2 = (list) => {
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i];
+      if (!n || typeof n !== 'object') continue;
+      if (String(n.no ?? '') === want) byNo.push({ node: n, list, index: i });
+      if (String(n.title ?? '').trim() === want) byTitle.push({ node: n, list, index: i });
+      if (Array.isArray(n.children)) walk2(n.children);
+    }
+  };
+  walk2(stages);
+  if (byNo.length === 1) return byNo[0];
+  if (byTitle.length === 1) return byTitle[0];
+  return null;
 }
 
 /**
@@ -2444,7 +2897,10 @@ const MEDIA = createMediaService({
       ].filter(Boolean);
       for (const p of candidates) {
         try {
-          const m = /ARK_API_KEY:\s*(\S+)/.exec(readFileSync(p, "utf8"));
+          /* ⚠️ 别用 \S+ 抓 key：流式 refs 里 `ark-xxx,ARK_LLM_API_KEY: …` 连着写，
+           * \S+ 会把结尾的逗号一起吞进去 ⇒ 方舟回 401「The API key format is incorrect」。
+           * 2026-11-03 实测栽在这（行内生成第一次真跑就 401）。 */
+          const m = /ARK_API_KEY\s*:\s*["']?([A-Za-z0-9_\-]+)/.exec(readFileSync(p, "utf8"));
           if (m) return m[1];
         } catch { /* 试下一个 */ }
       }
@@ -2468,7 +2924,7 @@ const MEDIA = createMediaService({
       ].filter(Boolean);
       for (const p of candidates) {
         try {
-          const m = /SPEECH_API_KEY:\s*(\S+)/.exec(readFileSync(p, "utf8"));
+          const m = /SPEECH_API_KEY\s*:\s*["']?([A-Za-z0-9_\-]+)/.exec(readFileSync(p, "utf8"));
           if (m) return m[1];
         } catch { /* 试下一个 */ }
       }
@@ -2569,10 +3025,20 @@ function structureOp(root, op) {
      * 看起来像节点的东西）。没给标题时不要用模板名「人物·单人」当标题 —— 那看着像占位符，
      * 用户还得再改一次；这里直接给一个一眼就知道要改的占位。
      */
-    const fallbackTitle = String(tplId) === 'character-one' ? '人名（点我改）' : (tpl?.title || '新节点');
+    /*
+     * 人物·单人：标题**完全留空**（2026-11-02 用户：「不应该有一个叫做人名节点的节点，
+     * 点人物节点的加号，下游自动新建一个看起来完全空白的节点，里面只填人物名字」）。
+     * 空白标题 = 空白框，画布会立刻进入改名状态让人填名字。
+     */
+    const fallbackTitle = String(tplId) === 'character-one' ? '' : (tpl?.title || '新节点');
     const baseTitle = String(op.title || fallbackTitle).trim();
     // key 唯一：`角色` → `角色`，重名就 `角色-2`
-    const slug = keyFromTitle(baseTitle) || tplId;
+    /*
+     * key（内部标识）：标题空着的人名节点用 p / p-2 / p-3 …；其余照旧按标题派生。
+     * keyFromTitle('') 会回一个 'node'，所以这里必须先判空。
+     */
+    const emptyName = !String(baseTitle).trim() && String(tplId) === 'character-one';
+    const slug = emptyName ? 'p' : (keyFromTitle(baseTitle) || tplId);
     let key = slug;
     for (let i = 2; keySet.has(key); i++) key = slug + '-' + i;
 
@@ -2627,6 +3093,13 @@ function structureOp(root, op) {
      */
     if (tpl?.files) { node.files = [String(tpl.files)]; delete node.md; }
     /*
+     * 容器节点（人物，2026-11-02 用户）：「人物节点本身框里不应该装任何东西」——
+     * 它不写正文、也就没有产物文件；人名在它下游的人名节点里。
+     */
+    if (tpl?.noBody) { node.md = []; delete node.shape; }
+    /* 参考资料：refs glob 落盘，画布据此列文件清单（只读，不建子节点）。 */
+    if (tpl?.refs) node.refs = [String(tpl.refs)];
+    /*
      * 媒体模板（图片/视频/音频）：媒体节点**没有正文文件**，
      * 生成配置放在 `media` 里，生成按钮由用户点（程序不自己发起）。
      */
@@ -2677,7 +3150,7 @@ function structureOp(root, op) {
 
     const bak = backup(root, abs);
     // 建空的产物文件（有个标题，agent 才知道往哪儿写）；files 型节点跳过
-    if (node.md) {
+    if (node.md && node.md.length) {
       const artAbs = join(root, mdRel);
       try {
         mkdirSync(dirname(artAbs), { recursive: true });
@@ -2701,9 +3174,10 @@ function structureOp(root, op) {
      * ★ 生成节点的依赖必须对得上（R47）。
      *
      * 只卡"挂在哪"不够：视频生成挂顶层、依赖却写着剧本，照样是错的。
-     * 规则：
-     *   · 没显式给依赖 → 自动接项目里现成的同类型提示词（图片节点接分镜/设定）；
-     *   · 显式给了但类型不对 → 直接拒绝，让调用方自己改 —— 不默默加一条它没写的依赖。
+     * 规则（2026-11-02 起）：
+     *   · 视频/图片生成：没给依赖 → 就空着建（依赖可空）；给了依赖 → 类型必须对；
+     *   · 其它生成（音频）：没给依赖 → 自动接项目里现成的同类型提示词；接了不到就报错；
+     *   · 显式给了但类型不对 → 一律拒绝 —— 不默默加一条它没写的依赖。
      */
     if (DEP_RULES[tplRole]) {
       const roleMap = roleByKeyOf(stages);
@@ -2712,7 +3186,14 @@ function structureOp(root, op) {
       const chk = checkDeps(tplRole, depRoles);
       if (!chk.ok) {
         const explicitGiven = Array.isArray(op.dependsOn) && op.dependsOn.length > 0;
-        if (!explicitGiven) {
+        /*
+         * 2026-11-02 用户：「让视频和图片生成节点不必有上游依赖」。
+         * ⇒ 没给依赖就空着建（不自动接线、不报错），以后要给再补；
+         *   显式给了但类型不对，仍旧拒绝 —— 允许依赖的类型表一个字没动。
+         */
+        if (!explicitGiven && OPTIONAL_DEP_ROLES.has(normalizeRole(tplRole))) {
+          trace('[结构] ' + roleLabel(tplRole) + '未接依赖（视频/图片生成的依赖是可空的）');
+        } else if (!explicitGiven) {
           const cand = autoWireDep(stages, tplRole, { preferredKey: loc ? String(loc.node.key || '') : '' });
           if (cand) {
             node.dependsOn = [cand.key];
@@ -2737,7 +3218,7 @@ function structureOp(root, op) {
 
   if (type === 'delete') {
     const key = String(op.key || '');
-    const loc = locateNode(stages, key);
+    const loc = locateNodeLoose(stages, key);
     if (!loc) throw new Error('没有这个节点：' + key);
     // 被依赖就不许删 —— 删了下游的"依据"就悬空了，而过期判定会静默失灵
     const users = (dependents.get(key) || []).filter((k) => k !== key);
@@ -2792,7 +3273,7 @@ function structureOp(root, op) {
 
   if (type === 'rename') {
     const key = String(op.key || '');
-    const loc = locateNode(stages, key);
+    const loc = locateNodeLoose(stages, key);
     if (!loc) throw new Error('没有这个节点：' + key);
     const title = String(op.title || '').trim();
     if (!title) throw new Error('标题不能为空');
@@ -2834,7 +3315,7 @@ function structureOp(root, op) {
    */
   if (type === 'setMedia') {
     const key = String(op.key || '');
-    const loc = locateNode(stages, key);
+    const loc = locateNodeLoose(stages, key);
     if (!loc) throw new Error('没有这个节点：' + key);
     const n = loc.node;
     if (String(n.kind || '') !== 'media') throw new Error('「' + (n.title || key) + '」不是媒体节点');
@@ -2999,7 +3480,7 @@ function structureOp(root, op) {
   }
   if (type === 'move') {
     const key = String(op.key || '');
-    const loc = locateNode(stages, key);
+    const loc = locateNodeLoose(stages, key);
     if (!loc) throw new Error('没有这个节点：' + key);
     const dir = String(op.dir || 'up');
     const i = loc.index;
@@ -3028,7 +3509,7 @@ function structureOp(root, op) {
    */
   if (type === 'expand') {
     const key = String(op.key || '');
-    const loc = locateNode(stages, key);
+    const loc = locateNodeLoose(stages, key);
     if (!loc) throw new Error('没有这个节点：' + key);
     const parent = loc.node;
     const glob = String(op.glob || '');
@@ -3386,6 +3867,9 @@ function buildStage(root, raw, path, dp, parentGroup, parentRole) {
   const tplList = readTemplates();
   const tplId = templateIdOf(raw, tplList) || '';
   const canAdd = canAddUnder(raw, tplList, { roleIndex: roleIndexOfTemplates(), group: grp });
+  /* 容器节点（人物）：本节点不装正文，画布不画正文框（2026-11-02）。 */
+  const tplOfNode = tplList.find((x) => String(x.id) === String(tplId));
+  const noBody = !!tplOfNode && !!tplOfNode.noBody;
 
   const outputs = (Array.isArray(raw?.out) ? raw.out : []).map((g) => {
     const r = resolveGlob(root, g);
@@ -3402,7 +3886,20 @@ function buildStage(root, raw, path, dp, parentGroup, parentRole) {
   );
 
   // 内容：**本节点自己的正文** + 它下面的子节点（用户：所有节点的正文都要能在图上改）
-  const body = buildContent(root, raw, id);
+  /*
+   * 老节点没落 shape：分镜脚本这类模板声明了表格形态的，按模板补上 ——
+   * 否则画布拿不到 doc，表格永远退化成纯文本（用户 2026-11-02 要「分镜脚本做成表格」）。
+   */
+  let rawForBody = raw;
+  if (raw && tplOfNode && tplOfNode.shape) {
+    /*
+     * 分镜脚本的列属于**结构**，跟着模板走：老片里存着旧列定义（镜号/时长/景别/画面/台词/声音），
+     * 不覆盖会把「场景」塞进「时长」列（列数相同 ⇒ 按位置映射）。
+     */
+    const forceShape = String(tplId) === 'storyboard';
+    if (forceShape || !raw.shape) rawForBody = { ...raw, shape: tplOfNode.shape };
+  }
+  const body = buildContent(root, rawForBody, id);
   const content = body.children;
   const countNodes = (list) => list.reduce((n, c) => n + 1 + countNodes(c.children || []), 0);
 
@@ -3477,6 +3974,8 @@ function buildStage(root, raw, path, dp, parentGroup, parentRole) {
      * 空数组 = 叶子（画布不显示 ＋）；画布菜单只列这些 id。
      */
     canAdd,
+    /** 容器节点（人物）：不画正文框 */
+    noBody,
     /**
      * 节点**自己的正文** —— 每个节点都有，都能在图上直接改。
      * `src` + `line` 说明它落在哪个文件的哪一行（`line: 0` 表示文件还没建）。
@@ -3489,6 +3988,8 @@ function buildStage(root, raw, path, dp, parentGroup, parentRole) {
     media: raw && raw.media ? { ...raw.media } : null,
     /** 这个节点的条目怎么显示：'title'=只列名字（人物这种）/ 空=名字+正文 */
     items: String(raw?.items || ''),
+    /** 参考资料节点读到的文件清单（refs glob；不建子节点，只给人看/给 agent 读） */
+    refFiles: body.refFiles || [],
     /** 整份文件原文 —— 文件内的小节当「伪节点」显示、编辑时整份回写（不丢结构） */
     fileText,
     src: body.src,
@@ -3501,6 +4002,7 @@ function buildStage(root, raw, path, dp, parentGroup, parentRole) {
     /** 解析出来的结构化内容；为 null 表示退回纯文本框 */
     doc: body.doc,
     shapeOk: body.shapeOk,
+    leftover: body.leftover || '',
     shapeHint: body.shapeHint,
     // 声明的原始字段也带上 —— 就地编辑器要用它们填初始值（缺了就会被误删）
     md: Array.isArray(raw?.md) ? raw.md.map(String) : [],
@@ -3873,6 +4375,366 @@ function syncNodes(root, onlyNo) {
 
 const PROPOSALS = join('.film', 'proposals.json');
 
+/*
+ * 分镜表的**行内生成状态**（2026-11-03 用户：「生成节点内化为一格按钮和一格预览框」）。
+ *
+ * 为什么状态不进 markdown：表格是正文，人天天手改；生成状态是机器状态（成片路径、
+ * 重试历史、失败原因、最终 prompt），写进 md 会被一次手改毁掉、agent 也会读进去。
+ * 所以存 `.film/generation.json`，**按镜号绑**（行身份 = 镜号，插行不重排已有镜号）。
+ * 行被删掉时状态**不删**，改成孤儿留在文件里 —— 成片还在素材库，能找回。
+ */
+const GEN_FILE = join('.film', 'generation.json');
+
+/** 读 generation.json；坏文件当空。 */
+function readGen(root) {
+  const p = join(root, GEN_FILE);
+  if (!existsSync(p)) return { version: 1, rows: {}, orphans: [], unitRows: {} };
+  try {
+    const j = JSON.parse(readFileSync(p, 'utf8'));
+    return {
+      version: 1,
+      rows: j && typeof j.rows === 'object' && j.rows ? j.rows : {},
+      orphans: Array.isArray(j && j.orphans) ? j.orphans : [],
+      /* 单元级生成状态（一个单元 = 一次任务，覆盖 1..N 镜） */
+      unitRows: j && typeof j.unitRows === 'object' && j.unitRows ? j.unitRows : {},
+    };
+  } catch {
+    return { version: 1, rows: {}, orphans: [], unitRows: {} };
+  }
+}
+
+/** 写 generation.json（先写临时文件再改名，别留半截）。 */
+function writeGen(root, data) {
+  const p = join(root, GEN_FILE);
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  writeFileSync(tmp, JSON.stringify({ version: 1, rows: data.rows || {}, orphans: data.orphans || [], unitRows: data.unitRows || {} }, null, 2) + '\n', 'utf8');
+  writeFileSync(p, readFileSync(tmp));
+  try { writeFileSync(tmp, ''); } catch { /* 忽略 */ }
+}
+
+/** 表行的资产/任务归属键（assets.json 的 node 字段就用它）。 */
+function genKeyOf(no) { return '镜' + String(no == null ? '' : no).trim(); }
+
+/** 生成单元的归属键 —— 单元产出的那条片子记在它名下。 */
+function unitKeyOf(id) { return '组' + String(id == null ? '' : id).trim(); }
+
+/**
+ * 把一个单元里各镜按顺序拼成提示词（sd2.5 的多事件链写法：`镜头1：… 镜头2：…`）。
+ * **不写秒数**（参数分离），备注集中挂在最后。
+ * @param {Array<{pic:string,line:string,dur:number,note?:string}>} rows - 组内各镜（按分镜顺序）
+ */
+function composeUnitPrompt(rows) {
+  const parts = [];
+  const notes = [];
+  (rows || []).forEach((r, i) => {
+    const seg = [];
+    const cam = [r.move, r.shot].map((x) => String(x || '').trim()).filter(Boolean).join('、');
+    if (cam) seg.push(cam);
+    if (r.pic) seg.push(String(r.pic).trim());
+    if (r.line) seg.push('声音/台词：' + String(r.line).trim());
+    if (seg.length) parts.push('镜头' + (i + 1) + '：' + seg.join('；'));
+    if (r.note) notes.push(String(r.note).trim());
+  });
+  if (notes.length) parts.push('备注：' + [...new Set(notes)].join('；'));
+  return parts.join('\n');
+}
+
+/** 一个单元当前的状态（任务在跑吗 / 有没有成片 / 提示词是什么）。 */
+function unitStateOf(root, u, jobs, assets) {
+  const key = unitKeyOf(u.id);
+  const gen = readGen(root);
+  const rec = (gen.unitRows || {})[String(u.id)] || null;
+  const job = (jobs || []).find((j) => String(j.key) === key) || null;
+  const list = (assets || []).filter((a) => String(a.node) === key);
+  let latest = null;
+  for (const a of list) if (!latest || String(a.at) > String(latest.at)) latest = a;
+  const status = job ? String(job.status) : (latest ? 'done' : 'idle');
+  return {
+    key,
+    status,
+    progress: job ? String(job.progress || '') : '',
+    error: job ? String(job.error || '') : '',
+    asset: latest ? { id: latest.id, src: latest.src, type: latest.type, at: latest.at, model: String(latest.model || '') } : null,
+    prompt: rec ? String(rec.prompt || '') : '',
+    model: rec ? String(rec.model || '') : '',
+  };
+}
+
+/* ══ 生成单元（镜头组）══════════════════════════════════════════════════
+ *
+ * 2026-11-03 用户指出的硬矛盾：
+ *   分镜里大量镜头只有 1 秒甚至不到，而 Seedance 2.0/2.5 **最短只能生 4 秒**
+ *   ⇒ 「生成任务」和「分镜行」**不是 1:1**。
+ *   而且为了让一段连续动作不抖、不换脸，经常要**几个镜头一次生成**再剪开。
+ *
+ * 所以引入「生成单元」：一次生成任务 = 一个单元，覆盖 1..N 个分镜行；
+ * 单元产出一条片子，**整条导出**，在剪辑软件里跟别的单元按顺序接起来。
+ * 要拆镜？剪辑软件的自动分镜（场景检测）就能干 —— 程序**不记 in/out、不做切片/EDL**
+ * （用户 2026-11-03 明确否掉了这套：一个任务出来的素材就是一条，别在数据层再切一遍）。
+ * 分镜表仍是**剪辑单位**，单元是**素材单位** —— 两层，别混。
+ *
+ * 存 `.film/units.json`，跟 generation.json 分开：
+ *   · generation.json 记「每一行的提示词/尝试/资产」，按镜号；
+ *   · units.json 记「谁跟谁一起生成」，是分组决策。
+ * 分组由 **agent** 出（它读得懂场景/动作连续性），程序只校验 + 落盘（见 filmflow_units）。
+ */
+const UNITS_FILE = join('.film', 'units.json');
+
+/** 视频模型的最短/最长时长 —— 分组校验要用（跟 host/media/ark.js 的 VIDEO_MODELS 对齐）。 */
+const VIDEO_SPAN = {
+  'doubao-seedance-2-5-260628': { min: 4, max: 30 },
+  'doubao-seedance-2-0-260128': { min: 4, max: 15 },
+  'doubao-seedance-2-0-fast-260128': { min: 4, max: 15 },
+  'doubao-seedance-2-0-mini-260615': { min: 4, max: 15 },
+};
+const DEFAULT_VIDEO_MODEL = 'doubao-seedance-2-5-260628';
+/** 组内合计的"舒适上限"：超过它就别再往里塞（越长越漂）。 */
+const UNIT_COMFORTABLE = 10;
+
+function readUnits(root) {
+  const p = join(root, UNITS_FILE);
+  if (!existsSync(p)) return { version: 1, units: [] };
+  try {
+    const j = JSON.parse(readFileSync(p, 'utf8'));
+    return {
+      version: 1,
+      at: j && j.at ? String(j.at) : '',
+      model: j && j.model ? String(j.model) : '',
+      units: Array.isArray(j && j.units) ? j.units : [],
+    };
+  } catch {
+    return { version: 1, units: [] };
+  }
+}
+
+function writeUnits(root, data) {
+  const p = join(root, UNITS_FILE);
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  const body = { version: 1, at: new Date().toISOString(), model: String(data.model || ''), units: data.units || [] };
+  writeFileSync(tmp, JSON.stringify(body, null, 2) + '\n', 'utf8');
+  writeFileSync(p, readFileSync(tmp));
+  try { writeFileSync(tmp, ''); } catch { /* 忽略 */ }
+}
+
+/**
+ * 分镜表里"能拿去分组的行"：镜号 + 时长（秒）+ 画面内容 + 台词。
+ * 直接从 md 的第一张表读（表头按名字认列，跟 migrateStoryboardTable 一个口径）。
+ * @returns {Array<{no:string, dur:number, pic:string, line:string}>}
+ */
+function storyboardRows(root, decl) {
+  const out = [];
+  const walk = (n) => {
+    if (n && (String(n.template || '') === 'storyboard'
+      || (n.shape && String(n.shape.kind || '') === 'table'
+        && [].concat(n.md || []).some((f) => String(f).replace(/\\/g, '/').endsWith('工艺/分镜脚本.md'))))) {
+      for (const rel of [].concat(n.md || []).map(String)) {
+        let text;
+        try { text = readFileSync(join(root, ...rel.split('/')), 'utf8'); } catch { continue; }
+        const lines = text.split(/\r?\n/);
+        let head = -1;
+        for (let i = 0; i < lines.length - 1; i++) {
+          if (!/^\s*\|/.test(lines[i])) continue;
+          if (!/^\s*\|[\s:|-]*$/.test(lines[i + 1])) continue;
+          head = i; break;
+        }
+        if (head < 0) continue;
+        let end = head + 1;
+        while (end + 1 < lines.length && /^\s*\|/.test(lines[end + 1])) end++;
+        const split = (s) => String(s).replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((x) => x.trim());
+        const h = split(lines[head]);
+        const at = (names) => h.findIndex((x) => names.includes(String(x).replace(/\s+/g, '')));
+        const iNo = at(['镜号']);
+        const iDur = at(['时长（秒）', '时长(秒)', '时长']);
+        const iShot = at(['景别']);
+        const iMove = at(['机位/运镜', '机位·运镜', '运镜', '机位']);
+        const iPic = at(['画面内容', '画面']);
+        const iLine = at(['台词/声音', '台词·声音', '台词']);
+        const iNote = at(['备注']);
+        if (iNo < 0) continue;
+        for (let i = head + 2; i <= end; i++) {
+          const c = split(lines[i]);
+          const no = String(c[iNo] || '').trim();
+          if (!no) continue;
+          const durRaw = iDur >= 0 ? String(c[iDur] || '').replace(/[^\d.]/g, '') : '';
+          out.push({
+            no,
+            dur: durRaw ? Number(durRaw) || 0 : 0,
+            shot: iShot >= 0 ? String(c[iShot] || '').trim() : '',
+            move: iMove >= 0 ? String(c[iMove] || '').trim() : '',
+            pic: iPic >= 0 ? String(c[iPic] || '').trim() : '',
+            line: iLine >= 0 ? String(c[iLine] || '').trim() : '',
+            note: iNote >= 0 ? String(c[iNote] || '').trim() : '',
+          });
+        }
+        break; // 一个节点一张表
+      }
+    }
+    for (const c of (n && n.children) || []) walk(c);
+  };
+  for (const s of (decl && decl.stages) || []) walk(s);
+  return out;
+}
+
+/**
+ * 校验 agent 交上来的分组。**只认能校验过的**，不合格一条都不写盘。
+ *
+ * 规则（对应宪法/doctrine 里那份「拆生成单元」）：
+ *   · 每个镜号**恰好出现一次**，顺序必须与分镜一致（不许漏、不许重、不许乱序）
+ *   · 单元时长在模型区间内（2.0：4–15；2.5：4–30），且 ≥ 各行时长合计
+ *   · 每个单元必须有 why（一句话说清为什么在一起、为什么在这断）
+ *   · 组内合计超过舒适上限（10 秒）只警告，不拦（影视化长镜头偶尔要）
+ * @returns {{ok:boolean, errors:string[], warnings:string[], units:Array}}
+ */
+function validateUnits(root, decl, units, model) {
+  const rows = storyboardRows(root, decl);
+  const errors = [];
+  const warnings = [];
+  const span = VIDEO_SPAN[model] || VIDEO_SPAN[DEFAULT_VIDEO_MODEL];
+  if (!rows.length) return { ok: false, errors: ['分镜表里没有行（先有镜号才能分组）'], warnings, units: [] };
+  const durOf = new Map(rows.map((r) => [String(r.no), r.dur]));
+  const order = rows.map((r) => String(r.no));
+  const pos = new Map(order.map((no, i) => [no, i]));
+  if (!Array.isArray(units) || !units.length) return { ok: false, errors: ['没有 units'], warnings, units: [] };
+
+  const norm = [];
+  const seen = new Map(); // 镜号 → 单元序号
+  let lastPos = -1;
+  for (let k = 0; k < units.length; k++) {
+    const u = units[k] || {};
+    const covers = (Array.isArray(u.covers) ? u.covers : []).map((x) => String(x).trim()).filter(Boolean);
+    const id = String(u.id || '').trim() || 'u' + String(k + 1).padStart(2, '0');
+    if (!covers.length) { errors.push(id + '：covers 是空的'); continue; }
+    const why = String(u.why || '').trim();
+    if (!why) errors.push(id + '：没写 why（一句话说明为什么这几镜在一起、为什么在这断）');
+    let dur = Number(u.durationSec);
+    if (!Number.isFinite(dur)) errors.push(id + '：durationSec 不是数字');
+    dur = Math.round(dur);
+    if (dur < span.min || dur > span.max) errors.push(id + '：时长 ' + dur + 's 不在 ' + span.min + '–' + span.max + 's（模型 ' + model + '）');
+    let sum = 0;
+    for (const no of covers) {
+      if (!durOf.has(no)) { errors.push(id + '：镜号 ' + no + ' 在分镜表里不存在'); continue; }
+      if (seen.has(no)) { errors.push('镜号 ' + no + ' 同时出现在 ' + seen.get(no) + ' 和 ' + id); continue; }
+      const p = pos.get(no);
+      if (p <= lastPos) errors.push('镜号 ' + no + ' 的顺序与分镜不一致（分组必须按分镜顺序连续切）');
+      lastPos = Math.max(lastPos, p);
+      seen.set(no, id);
+      sum += Number(durOf.get(no)) || 0;
+    }
+    if (sum > dur + 0.001) {
+      errors.push(id + '：各行时长合计 ' + sum.toFixed(1) + 's > 单元时长 ' + dur + 's（生成不够剪）');
+    } else if (sum > 0 && dur - sum > span.min + 1) {
+      warnings.push(id + '：余量 ' + (dur - sum).toFixed(1) + 's 偏大（尾部会浪费）');
+    }
+    if (sum > UNIT_COMFORTABLE) warnings.push(id + '：组内合计 ' + sum.toFixed(1) + 's 超过舒适上限 ' + UNIT_COMFORTABLE + 's，越长越容易漂');
+    norm.push({ id, covers, durationSec: dur, why });
+  }
+  const missing = order.filter((no) => !seen.has(no));
+  if (missing.length) {
+    errors.push('这些镜号没分组（共 ' + missing.length + ' 个）：' + missing.slice(0, 20).join('、') + (missing.length > 20 ? ' …' : ''));
+  }
+  /*
+   * ★ 短镜不许单独成组（用户 2026-11-03 定的硬规矩）：
+   *   任何**短于模型下限（4 秒）**的镜，必须和相邻镜并成一个单元。
+   *   单镜生成 = 拿 4 秒换 1 秒，纯亏；并成一个单元后还可以按"多镜头一次生成"来写。
+   */
+  for (const u of norm) {
+    if ((u.covers || []).length !== 1) continue;
+    const one = String(u.covers[0]);
+    const d = Number(durOf.get(one)) || 0;
+    if (d > 0 && d < span.min) {
+      errors.push(u.id + '：镜' + one + ' 只有 ' + d + ' 秒（短于模型下限 ' + span.min + ' 秒），必须和相邻镜并成一个单元，不许单独生成');
+    }
+  }
+  return { ok: errors.length === 0, errors, warnings, units: errors.length ? [] : norm, rows };
+}
+
+/** 这一行的生成状态（合并 generation.json + 运行中的任务 + 最新素材）。 */
+function genStateOf(root, no, jobs, assets) {
+  const key = genKeyOf(no);
+  const rec = readGen(root).rows[String(no)] || null;
+  const job = (jobs || []).find((j) => String(j.key) === key) || null;
+  const list = (assets || []).filter((a) => String(a.node) === key);
+  let latest = null;
+  for (const a of list) if (!latest || String(a.at) > String(latest.at)) latest = a;
+  const status = job ? String(job.status) : (latest ? 'done' : 'idle');
+  return {
+    key,
+    status,
+    progress: job ? String(job.progress || '') : '',
+    error: job ? String(job.error || '') : '',
+    asset: latest ? { id: latest.id, src: latest.src, type: latest.type, at: latest.at, model: String(latest.model || '') } : null,
+    attempts: rec && Array.isArray(rec.attempts) ? rec.attempts.slice(-5) : [],
+    prompt: rec ? String(rec.prompt || '') : '',
+    model: rec ? String(rec.model || '') : '',
+  };
+}
+
+/**
+ * 给每张分镜表补上**行内生成状态**（表行 → 状态，按镜号绑）。
+ * 画布上「生成 / 预览」两格就是读这个。
+ */
+function attachRowGen(root, stages) {
+  let jobs = [];
+  let assets = [];
+  try { jobs = MEDIA.listJobs(root); } catch { jobs = []; }
+  try { assets = MEDIA.readAssets(root).items || []; } catch { assets = []; }
+  let UNITS = [];
+  try { UNITS = readUnits(root).units || []; } catch { UNITS = []; }
+  const seen = [];
+  const walk = (n) => {
+    const doc = n && n.doc;
+    if (doc && doc.kind === 'table') {
+      const rows = [];
+      for (const g of doc.groups || []) for (const row of g.rows || []) rows.push(row);
+      const nos = rows.map((r) => String(r && r.no != null ? r.no : '').trim()).filter(Boolean);
+      const gen = {};
+      for (const no of nos) { gen[no] = genStateOf(root, no, jobs, assets); seen.push(no); }
+      /*
+       * ★ 生成单元（2026-11-03）：**几行脚本格对一格视频**。
+       *   单元把状态挂到 `n.units`，每行标 `genRows[no].unit` ——
+       *   画布据此把"生成/预览"两格画成**按组一行**，组内其余行只显示归属。
+       */
+      if (UNITS.length) {
+        const byNo = new Map();
+        for (const u of UNITS) for (const no of u.covers || []) byNo.set(String(no), String(u.id));
+        const present = new Set(nos.map((x) => String(x)));
+        n.units = UNITS
+          .filter((u) => (u.covers || []).some((no) => present.has(String(no))))
+          .map((u) => ({
+            id: String(u.id),
+            covers: (u.covers || []).map(String),
+            durationSec: Number(u.durationSec) || 0,
+            why: String(u.why || ''),
+            ...unitStateOf(root, u, jobs, assets),
+          }));
+        for (const no of Object.keys(gen)) gen[no].unit = byNo.get(String(no)) || '';
+      } else {
+        n.units = [];
+      }
+      n.genRows = gen;
+    }
+    for (const c of (n && n.children) || []) walk(c);
+  };
+  for (const s of stages || []) walk(s);
+  /* 已经不在表里的行 → 标成孤儿（成片还在素材库，别静默丢） */
+  try {
+    const gen = readGen(root);
+    const orphans = [];
+    for (const no of Object.keys(gen.rows)) {
+      if (seen.includes(no)) continue;
+      const st = gen.rows[no];
+      orphans.push({ no, at: String((st && st.updatedAt) || ''), prompt: String((st && st.prompt) || '').slice(0, 200) });
+    }
+    if (orphans.length !== gen.orphans.length) {
+      gen.orphans = orphans;
+      writeGen(root, gen);
+    }
+  } catch { /* 孤儿标记失败不影响画布 */ }
+}
+
+
 function readProposals(root) {
   const p = join(root, PROPOSALS);
   if (!existsSync(p)) return [];
@@ -3935,6 +4797,14 @@ function previewOf(root, node) {
 
 /** 一个项目一个 agent run。key = 项目根（小写）。 */
 const agentRuns = new Map();
+  /*
+   * ★ 同一个项目**同时只跑一次启动流程**（2026-11-03 修 B33）。
+   * 并发叫醒（保存一次页面 → 好几路 wake）各自 resume：先抢到写句柄的那一路成功，
+   * 其余几路 resume 全部失败（already owned）→ 各自 createAgent → already exists →
+   * 各自换新 sessionId → session.json 被最后一路覆盖。实测 12:31 一次重启造出 4 条新会话，
+   * 用户原来那条（66KB）当场变成孤儿 —— 用户：「你改完片厂总是把我和agent的历史会话给弄没有」。
+   */
+  const agentPending = new Map();   // key → Promise<rec|null>（进行中的启动）
 
 /**
  * agentPreset 的名字。由 `apply()` 从插件配置读出来写进来。
@@ -4102,10 +4972,55 @@ function userMessage(text) {
 }
 
 /** 这个项目已经有 agent 了吗；没有就起一个。 */
+/**
+ * 手里这条 rec 还算不算数。
+ *
+ * 自己造的：算（它的生命周期归插件）。
+ * **借来的**（`borrowed`，界面那条会话）：每次都要回头问一句 `ctx.agents.get`
+ * 还认不认这个对象 —— 用户在界面上把会话关掉之后，我们手里那个就是死对象，
+ * 再 `followup` 只会抛，界面上表现为「叫了它没反应」。
+ * @param rec - agentRuns 里的一条
+ * @returns {boolean} 还能用
+ */
+function recAlive(rec) {
+  if (!rec || !rec.handle || !rec.handle.agent) return false;
+  if (!rec.borrowed) return true;
+  try {
+    const A = AGENTS;
+    if (!A || typeof A.get !== 'function') return false;
+    return A.get(rec.sessionId) === rec.handle.agent;
+  } catch {
+    return false;
+  }
+}
+
 async function ensureAgent(ctx, projectRoot, cwd, log) {
   const key = String(projectRoot).toLowerCase();
   const cur = agentRuns.get(key);
-  if (cur && cur.handle && cur.handle.agent) return cur;
+  if (recAlive(cur)) return cur;
+  if (cur) agentRuns.delete(key); // 借来的那条已经没了 ⇒ 当没有，重新接
+  /*
+   * ★ **单飞**：并发调用排队等同一个结果，不各跑一遍（见 agentPending 那段注释）。
+   * 原来并发 N 路就建 N 条新会话，最后一条覆盖 session.json —— 这就是用户丢历史的根因。
+   */
+  const inflight = agentPending.get(key);
+  if (inflight) {
+    log('⇒ 并发叫醒命中：等同一路启动（不再各自建会话）');
+    return inflight;
+  }
+  const p = (async () => {
+    try { return await ensureAgentOnce(ctx, projectRoot, cwd, log); }
+    finally { agentPending.delete(key); }
+  })();
+  agentPending.set(key, p);
+  return p;
+}
+/** 这个项目已经有 agent 了吗；没有就起一个。 */
+async function ensureAgentOnce(ctx, projectRoot, cwd, log) {
+  const key = String(projectRoot).toLowerCase();
+  const cur = agentRuns.get(key);
+  if (recAlive(cur)) return cur;
+  if (cur) agentRuns.delete(key);
 
   const reg = AGENTS; // ★ 用 apply() 里同步取好的那份，不在异步回调里现取
   if (!reg || typeof reg.requireFactory !== 'function') {
@@ -4254,16 +5169,15 @@ async function ensureAgent(ctx, projectRoot, cwd, log) {
        */
       for (const def of AGENT_TOOLS) {
         /*
-         * ⚠️ **跳过 `filmflow_write`** —— 它是停用的直写口。
+         * ★ 2026-11-03：**filmflow_write 也要绑定**（以前这里 continue 掉了它）。
          *
-         * 实测（2026-10-16 08:39）：绑定循环收了 5 把（含 filmflow_write），
-         * 于是模型收到的工具变成 5 个 —— **因为它成了 scoped 工具，
-         * 而 `restrict` 的 allow 名单管不着 scoped 的**（"scoped registrations
-         * remain visible"）→ 那个停用的口子又露出来了 ✗
-         *
-         * 它的 execute 仍然会抛"已停用"（无害），但**可见就是脏** —— 不绑它。
+         * 它当初被跳过，是因为那时它还是个停用的直写口，绑上去等于把那个口子重新露出来。
+         * 现在它是正经的文件工具（只写非节点文件；`.film/` 由 fsWithin 挡、节点产物由
+         * isNodeArtifact 挡、参考资料由 isReferenceFile 挡），但**没被绑定** ⇒ 模型调它时
+         * 拿不到 project ⇒ 永远报“这个工具必须绑在某部片上”，等于给了一把用不了的扳手
+         * （2026-11-03 实测：agent 想写 资料/ 直接被这句挡住）。
+         * ⇒ 和其他工具一样绑死到本项目。
          */
-        if (!def || def.name === 'filmflow_write') continue;
         try {
           agentCtx.tools.register({
             ...def,
@@ -4453,19 +5367,80 @@ async function ensureAgent(ctx, projectRoot, cwd, log) {
    */
   let handle = null;
   let how = '';
+  let resumeErr = '';   // 最后一次 resume 的原始报错，用来区分「占着」和「读不回来」
   if (!firstRun && typeof fac.resume === 'function') {
-    try {
-      handle = await fac.resume(ctx, { resumeSessionId: stableId, ...sharedOpts });
-      how = 'resume（接回了老会话）';
-    } catch (e) {
-      const msg = String((e && e.message) || e);
-      log('resume 没成：' + msg.slice(0, 260));
-      if (/unknown to this harness|not marked ignorable/i.test(msg)) {
-        log('⇒ 这份会话被别的事件类型挡住了（见 side-answer 那条）。**保留原文件，不覆盖。**');
+    /*
+     * 「already owned by an active write handle」是**暂时性**的（上一轮还没释放/界面刚读过），
+     * 直接改绑会把这个项目的历史丢在新会话外面（用户 2026-11-03：「会话历史没加载出来」）。
+     * ⇒ 先重试几次（1s × 4），实在不行才换新 id。
+     */
+    for (let attempt = 1; attempt <= 10 && !handle; attempt++) {
+      try {
+        handle = await fac.resume(ctx, { resumeSessionId: stableId, ...sharedOpts });
+        how = 'resume（接回了老会话）';
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+  	resumeErr = msg;
+        const transient = /already owned|active write handle/i.test(msg);
+        log('resume 没成（第 ' + attempt + ' 次）：' + msg.slice(0, 220));
+        if (/unknown to this harness|not marked ignorable/i.test(msg)) {
+          log('⇒ 这份会话被别的事件类型挡住了（见 side-answer 那条）。**保留原文件，不覆盖。**');
+        }
+        if (transient && attempt < 4) await new Promise((r) => setTimeout(r, 1000));
       }
     }
   }
   if (!handle) {
+    /*
+     * ★ already owned by an active write handle = **暂时被占**，不等于「读不回来」（2026-11-03）。
+     *
+     * 那是并发叫醒时的正常竞争：先拿到写句柄的那一路成功，其余几路都报这个。
+     * 从前这里失败即 createAgent ⇒ already exists ⇒ **换新 sessionId** ⇒ 用户眼前的历史换人。
+     * 现在：占着就**这次不叫醒**（上面已重试 10 次 ≈ 7 秒），绝不新建 id。
+     * 真正的「读不回来」（文件坏 / 事件类型不认）不走这个分支，仍按老路换 id（并记 session-history）。
+     */
+    if (/already owned|active write handle/i.test(resumeErr)) {
+      /*
+       * ★★★ 2026-11-03：**被占着就借它，别放弃** —— 这是「停止键按了没反应」的根因所在。
+       *
+       * 现场：
+       *   界面（右侧对话）打开这部片的会话之后，**写句柄在界面那个 agent 手里**。
+       *   插件每次 resume 都撞 `already owned by an active write handle`
+       *   ⇒ 原来的写法是「这次不叫醒」⇒ `/filmflow/say` 返回 ok 但**什么都没发生**；
+       *   用户在画布上触发的活根本没人干，右侧那条会话里也什么都没有。
+       *
+       * 为什么不能自己再起一个：
+       *   一条会话只能有一个写句柄。插件另起 = 把用户的历史丢到另一条会话外面（2026-10-16 的老 bug）。
+       *
+       * 唯一正确的做法：**`ctx.agents.get(id)` 拿到界面那个活 agent，直接对它说话。**
+       *   · 同一个对象 ⇒ 界面显示的流、画布的 busy、停止键的 `cancel` 全指向它 ✓
+       *   · 停止键（DSH 的蓝圈）= `agent.cancel({kind:'user'})` ⇒ 按下去真的会停 ✓
+       *   · 代价：它的 system prompt 是界面那套（没有片场宪法）——
+       *     所以借来的 agent，唤醒文案里要自己带上规矩（见 wakeAgent 的 borrowed 分支）。
+       */
+      let live;
+      try {
+        live = AGENTS && typeof AGENTS.get === 'function' ? AGENTS.get(stableId) : undefined;
+      } catch (e) {
+        log('查活 agent 抛了：' + String((e && e.message) || e).slice(0, 160));
+      }
+      if (live) {
+        const rec = {
+          handle: { agent: live },
+          busy: false,
+          busyAt: 0,
+          startedAt: Date.now(),
+          sessionId: stableId,
+          borrowed: true, // ★ 借来的：不许 dispose、不许当自己造的
+        };
+        agentRuns.set(key, rec);
+        log('⇒ 会话被界面占着 —— **借用界面那个活 agent** ' + stableId);
+        log('  （同一个对象：画布叫得醒它，DSH 的停止键也停得下它）');
+        return rec;
+      }
+      log('⇒ 会话仍被占用，而且找不到那个活 agent（不是读不回来）—— 这次不叫醒，保留原会话 ' + stableId + '，不新建 id');
+      return null;
+    }
     /*
      * ★ **撞到"已存在"就换 id，并把 session.json 改指过去。**
      *
@@ -4489,10 +5464,20 @@ async function ensureAgent(ctx, projectRoot, cwd, log) {
     } catch (e) {
       const msg = String((e && e.message) || e);
       if (/already exists/i.test(msg)) {
+        const previousId = stableId;
         stableId = 'session-' + randomUUID();
         handle = await mk(stableId);
         how = 'createAgent（原 id 读不回来 ⇒ 换新 id ' + stableId + '）';
         log('⇒ 用新 id 起了 agent，并把 .film/session.json 改指它');
+        /* 把被换掉的会话 id 记下来 —— 老历史留在那个会话里，别让它变成孤魂 */
+        try {
+          const histFile = join(projectRoot, '.film', 'session-history.json');
+          let hist = [];
+          try { hist = JSON.parse(readFileSync(histFile, 'utf8')); } catch { hist = []; }
+          if (!Array.isArray(hist)) hist = [];
+          hist.push({ sessionId: previousId, at: new Date().toISOString(), reason: 'resume 失败（被占用）' });
+          writeFileSync(histFile, JSON.stringify(hist.slice(-20), null, 2));
+        } catch (e) { log('写 session-history.json 失败: ' + String((e && e.message) || e).slice(0, 120)); }
       } else {
         throw e;
       }
@@ -4508,7 +5493,7 @@ async function ensureAgent(ctx, projectRoot, cwd, log) {
   }
   log('会话 id = ' + stableId + '　方式 = ' + how + '　（重启后还是同一个 id）');
 
-  const rec = { handle, busy: false, startedAt: new Date().toISOString() };
+  const rec = { handle, busy: false, startedAt: new Date().toISOString(), sessionId: stableId };
   agentRuns.set(key, rec);
   log(
     '已为项目起了一个 agent：' +
@@ -4528,10 +5513,10 @@ async function ensureAgent(ctx, projectRoot, cwd, log) {
 function wakeAgent(ctx, projectRoot, cwd, text, log, opts) {
   // silent：懒唤醒（只是接回会话，不是叫它干活）—— 不记进 feed，免得污染对话记录
   if (!opts || !opts.silent) pushFeed(projectRoot, 'plugin', text);
-  (async () => {
+  const run = (async () => {
     try {
       const rec = await ensureAgent(ctx, projectRoot, cwd, log);
-      if (!rec) return;
+      if (!rec) return null;
       const a = rec.handle.agent;
 
       /*
@@ -4545,10 +5530,20 @@ function wakeAgent(ctx, projectRoot, cwd, text, log, opts) {
        *   `MessageSourceMap.user = { kind: 'user' }`
        * ⇒ 完整的那种排第一（缺 id/source 会被静默丢掉，就是这个 bug）。
        */
+      /*
+       * ★ 借来的 agent（界面那条会话）的 system prompt 里**没有片场宪法**，
+       *   所以规矩得写在话里 —— 否则它会直接拿文件工具改片子，绕过提案闸门。
+       */
+      const body = rec.borrowed
+        ? '【片场规矩（这个会话的系统提示词里没有宪法，这里补一遍）】\n' +
+          '· 只能读、只能提案：要改内容一律走 filmflow_propose，等用户在画布上确认；不许直接改文件。\n' +
+          '· 动手前先 filmflow_board 看全貌；没内容要改就直接 filmflow_sync。\n\n' +
+          text
+        : text;
       const tries = [
-        ['完整 UserMessage（id + role + content 块 + source）', () => a.followup(userMessage(text))],
-        ['只有 role+content', () => a.followup({ role: 'user', content: [{ type: 'text', text }] })],
-        ['纯字符串', () => a.followup(text)],
+      	['完整 UserMessage（id + role + content 块 + source）', () => a.followup(userMessage(body))],
+      	['只有 role+content', () => a.followup({ role: 'user', content: [{ type: 'text', text: body }] })],
+      	['纯字符串', () => a.followup(body)],
       ];
       let ok = '';
       let lastErr = '';
@@ -4570,16 +5565,58 @@ function wakeAgent(ctx, projectRoot, cwd, text, log, opts) {
        *    看起来"干完了"，其实那次 turn 什么都没干 —— **光看 whenIdle 会骗人**。
        *    所以加一个 12 秒后的复核：看 status、看会话里到底有没有消息。
        */
-      if (typeof a.whenIdle === 'function') {
-        a.whenIdle()
-          .then(() => {
-            rec.busy = false;
-            log('whenIdle 返回');
-          })
-          .catch(() => {
-            rec.busy = false;
-          });
-      }
+      /*
+       * ★ busyWatch：whenIdle 会说谎（实测 8 秒就返回、turn 还在跑），
+       * 所以 busy 改由「输出有没有在长」决定：连续 3 拍（≈4.5 秒）消息数不变、且 status 不是 running，
+       * 才算这一轮结束。界面上「暂停」按钮就靠这个 busy 出现和消失。
+       */
+      rec.busy = true;
+      rec.busyAt = Date.now();
+      const msgCount = () => {
+      	try { return (a.session && typeof a.session.deriveMessages === 'function' ? a.session.deriveMessages() : []).length; }
+      	catch { return -1; }
+      };
+      let lastN = msgCount();
+      let still = 0;
+      let startedSeen = /running|busy|working|thinking/i.test(String(a.status || ''));
+      const busyWatch = setInterval(() => {
+      	let running = false;
+      	try { running = /running|busy|working|thinking/i.test(String(a.status || '')); } catch { running = false; }
+      	const n = msgCount();
+      	if (running || n !== lastN) {
+      		startedSeen = true;
+      		still = 0;
+      		lastN = n;
+      		rec.busyAt = Date.now();
+      		return;
+      	}
+      	/*
+      	 * ★ 直接看会话事件的尾巴（2026-11-03）：
+      	 *   `turn/end` 已经落进会话 ⇒ 这一轮**真的**结束了，别再等 20 拍（≈30 秒）。
+      	 *   用户按了停止（或它自己收尾），画布上的「暂停」还亮着半分钟，
+      	 *   看起来就是「停止键没用」。`startedSeen` 是防止把上一轮的 turn/end 当成本轮结束。
+      	 */
+      	let ended = false;
+      	if (startedSeen) {
+      		try {
+      			const evs = typeof a.session?.snapshotEvents === 'function' ? a.session.snapshotEvents() : null;
+      			const lastEv = evs && evs.length ? evs[evs.length - 1] : null;
+      			ended = String((lastEv && lastEv.type) || '') === 'turn/end';
+      		} catch { ended = false; }
+      	}
+      	if (ended) {
+      		clearInterval(busyWatch);
+      		rec.busy = false;
+      		log('这一轮结束了（会话里落了 turn/end）');
+      		return;
+      	}
+      	still += 1;
+      	if (still >= 20) {
+      		clearInterval(busyWatch);
+      		rec.busy = false;
+      		log('这一轮结束了（输出停稳 ' + still + ' 拍）');
+      	}
+      }, 1500);
       setTimeout(() => {
         try {
           const st = JSON.stringify(a.status || '');
@@ -4661,10 +5698,13 @@ function wakeAgent(ctx, projectRoot, cwd, text, log, opts) {
           log('12 秒复核抛: ' + String((e && e.message) || e));
         }
       }, 12000);
+      return rec;
     } catch (e) {
       log('✗ 叫醒 agent 失败: ' + String((e && e.stack) || e));
+      return null;
     }
   })();
+  return run;
 }
 
 /**
@@ -4674,7 +5714,52 @@ function wakeAgent(ctx, projectRoot, cwd, text, log, opts) {
  * 它必须自足 —— 那个 Agent 不知道刚才发生了什么，也不知道规矩（虽然 AGENTS.md
  * 会注入，但这里点明一次更稳）。
  */
-function composeWake(project, changedDesc, staleList) {
+/**
+ * 参考资料变了 → 叫醒 agent 的文案（2026-11-03）。
+ *
+ * 用户：「参考资料里实际上多半包括非常多东西，所以我觉得 agent 虽然不应该有更改参考资料的权限，
+ * 但是除此之外应该纳入自动化范围。」
+ *
+ * 也就是说：参考稿是**输入**，下游全部该由 agent 自动跟上；而它自己一个字都不许改参考稿。
+ * 所以这条唤醒的重点是「先读、再判断哪些下游要跟着改、直接出提案，别问」。
+ */
+function composeRefWake(project, files, what) {
+  const L = [];
+  L.push('【片场插件】参考资料变了（' + String(what || '') + '）。');
+  L.push('');
+  L.push('项目：' + project.title + '（' + project.root + '）');
+  L.push('现在的参考文件（' + files.length + ' 个）：');
+  for (const f of files.slice(0, 40)) L.push('  · ' + f);
+  if (files.length > 40) L.push('  · …还有 ' + (files.length - 40) + ' 个');
+  L.push('');
+  L.push('按规矩办：');
+  L.push('1. **参考文件是用户的原稿 —— 只读，一个字都不许改**（filmflow_write 会直接拒绝）。');
+  L.push('2. 需要原文就 filmflow_read 读（.docx 也能读；文件多就逐个读，别猜）。');
+  L.push('3. 读完判断：哪些下游节点该跟着它变（人物名单、场景、道具、设定、剧本、分镜…）。');
+  L.push('   缺节点就 propose add，内容对不上就 propose 改正文，名单少人就 propose rename/add。');
+  L.push('4. **不要用自然语言问用户「要不要我按参考稿建/改」**：直接出提案卡（一张卡一件事），');
+  L.push('   用户在会话框一侧的「待确认提案」里点确认。');
+  L.push('5. 拿不准的地方写进提案的 why，别猜着改。');
+  return L.join('\n');
+}
+
+/**
+ * 参考资料增删后叫醒 agent（fire-and-forget；没有 ctx 时安静跳过）。
+ * 只在 /filmflow/reference 里用 —— 那里同时有 ctx / root / cwd。
+ */
+function wakeForRefs(ctx, roots0, root, what, log) {
+  try {
+    const { decl } = readDecl(join(root, DECL));
+    const files = referenceList(root, decl);
+    const p0 = buildProject(root);
+    wakeAgent(ctx, root, roots0, composeRefWake(p0, files, what), log);
+    log('参考资料变了，已叫醒 agent（' + files.length + ' 个文件）');
+  } catch (e) {
+    log('[参考资料唤醒失败] ' + String((e && e.message) || e));
+  }
+}
+
+function composeWake(project, changedDesc, staleList, hint) {
   const L = [];
   L.push('【片场插件】用户在画布上改了一处内容并保存了。');
   L.push('');
@@ -4700,6 +5785,17 @@ function composeWake(project, changedDesc, staleList) {
   L.push('4. 用户的改动可能不清楚甚至不合理 —— 拿不准就在提案的 why 里直说，别猜着改。');
   L.push('5. 方向：**上游改了 → 下游可以直接改**（改完 sync + 一句变更摘要）；');
   L.push('   **下游改了 → 要改成上游，必须先问**（先用 filmflow_search 查清影响面再请示）。');
+  /*
+   * ★ 2026-11-03 用户：画布上有明显没对齐的地方（空标题、顺序不对、名单少人），
+   *   不要用自然语言问「要不要我改」，**直接出提案卡** —— 用户在卡上点确认/拒绝就行。
+   */
+  L.push('6. **不要用自然语言问用户「要不要我改」**：凡是能落成结构/内容改动的，');
+  L.push('   直接 filmflow_propose 出一张卡（一张卡只做一件事），用户在卡上点「确认」或「拒绝」。');
+  L.push('   画布上明显没对齐的地方（空标题、名单缺人、顺序不对）都按这条办。');
+  if (hint) {
+    L.push('');
+    L.push('【这次触发的重点】' + String(hint));
+  }
   return L.join('\n');
 }
 
@@ -4734,7 +5830,12 @@ function agentStatusOf(projectRoot) {
   }
   const realBusy = /running|busy|working|thinking/i.test(st);
   // 读到了真实状态就用它；读不到才退回那个手工标志
-  const busy = readOk && st ? realBusy : !!rec.busy;
+  /*
+   * ★ 2026-11-03：**flag 与 status 取「或」**，不能“status 有值就只信 status”。
+   * 实测：agent 正在跑 turn，`agent.status` 却还是 idle（whenIdle 也会提前返回），
+   * 于是界面上「运行中/暂停」永远不出现。rec.busy 现在由 wakeAgent 的看门狗维护。
+   */
+  const busy = !!rec.busy || realBusy;
   return { running: true, busy, status: st, startedAt: rec.startedAt || '', flagBusy: !!rec.busy };
 }
 
@@ -4746,16 +5847,27 @@ function pauseAgent(projectRoot, log) {
     return { ok: false, error: '这个项目还没有 agent 在跑' };
   }
   const a = rec.handle.agent;
+  /* 按下这一刻它到底在不在跑 —— 回给界面，别让人以为暂停生效了其实它早就闲着 */
+  let atPress = '';
+  try { atPress = String(a.status || ''); } catch { atPress = ''; }
   if (typeof a.cancel !== 'function') return { ok: false, error: 'agent.cancel 不是函数' };
 
   /*
    * `cancel(cause, options)` —— `AgentCancelCause` 的确切形状我没验过，
    * 所以几种都试，哪个成记哪个（跟 followup 一样的打法）。
    */
+  /*
+   * ★ 2026-11-03：签名从类型定义核实过，别再瞎试。
+   *   `dsh-agent/.../runtime-types.d.ts`：cancel(cause: AgentCancelCause, options?: CancelOptions)
+   *   `dsh-session/.../types.d.ts`：AgentCancelCause = { kind: 'user' } | { kind: 'parent' } | …
+   * 官方停止按钮就是 agent.cancel({ kind: 'user' }, { keepInbox: true })。
+   * 以前先试 cancel('user', …)（字符串病）—— 校验宽松时**不报错也不生效**，
+   * 用户说的「暂停按了没用」就是这么来的。
+   */
   const tries = [
-    ['string', () => a.cancel('user', { keepInbox: true })],
-    ['object', () => a.cancel({ reason: 'user' }, { keepInbox: true })],
-    ['bare', () => a.cancel({ keepInbox: true })],
+  	['{kind:user}（官方写法）', () => a.cancel({ kind: 'user' }, { keepInbox: true })],
+  	['{kind:user} 不带 options', () => a.cancel({ kind: 'user' })],
+  	['string', () => a.cancel('user', { keepInbox: true })],
   ];
   let ok = '';
   let lastErr = '';
@@ -4771,7 +5883,7 @@ function pauseAgent(projectRoot, log) {
   rec.busy = false;
   if (ok) {
     log('已暂停 agent（cancel 用 ' + ok + ' 形式）');
-    return { ok: true, how: ok };
+    return { ok: true, how: ok, statusAtPress: atPress };
   }
   log('✗ 三种 cancel 形式都失败：' + lastErr);
   return { ok: false, error: lastErr };
@@ -6311,13 +7423,13 @@ function rejectNonGet(req, res) {
  * @param req node:http 请求
  * @returns 请求体文本
  */
-function readBody(req) {
+function readBody(req, max = MAX_BODY) {
   return new Promise((resolve) => {
     let size = 0;
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
-      if (size <= MAX_BODY) chunks.push(c);
+      if (size <= max) chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', () => resolve(''));
@@ -6327,6 +7439,36 @@ function readBody(req) {
 /* ------------------------------------------------------------------ *
  * 插件入口
  * ------------------------------------------------------------------ */
+
+/*
+ * 会话文件的体量/最近写入时间 —— 会话历史列表里用来区分「哪条是你真正聊过的那条」（2026-11-03）。
+ *
+ * 只 stat，不解压：一条会话可能几十 MB，列表要能秒开。
+ * 目录形如 %LOCALAPPDATA%\FilmFlow\dsh-home\sessions\--E-filmflow--\session-<uuid>\session.v4.jsonl.zstd，
+ * 不同工作区目录名不同，所以逐个工作区目录找一遍（几十个目录，开销可忽略）。
+ */
+function sessionFileMeta(sessionId) {
+  const id = String(sessionId || '').trim();
+  if (!id) return null;
+  const bases = [
+    join(process.env.LOCALAPPDATA || '', 'FilmFlow', 'dsh-home', 'sessions'),
+    join(process.env.APPDATA || '', 'FilmFlow', 'dsh-home', 'sessions'),
+  ];
+  for (const base of bases) {
+    if (!base || !existsSync(base)) continue;
+    let dirs = [];
+    try { dirs = readdirSync(base); } catch { continue; }
+    for (const d of dirs) {
+      const f = join(base, d, id, 'session.v4.jsonl.zstd');
+      try {
+        if (!existsSync(f)) continue;
+        const st = statSync(f);
+        return { size: st.size, mtime: st.mtime.toISOString(), dir: d };
+      } catch { /* 单个文件读不到不影响别的 */ }
+    }
+  }
+  return null;
+}
 
 export function apply(ctx, config) {
   /*
@@ -6386,6 +7528,33 @@ export function apply(ctx, config) {
    *   ③ 都没有 ⇒ 空 ⇒ `pickProjects` 会明确报错并列出可用项目，而不是瞎猜
    */
   let CURRENT = String(process.env.FILMFLOW_PROJECT || '').trim();
+  /*
+   * ★★ 2026-11-03：**CURRENT 要落盘**。
+   *
+   * 从前它只在内存里 ⇒ 每次重启都回到空 ⇒ `/filmflow/state` 的 `current` 是空串
+   * ⇒ 画布靠 `list[0]` 兜底、会话靠客户端 localStorage 兜底 —— **两边各猜一次**。
+   * 现场就是这个：宿主把工具绑在 空白3，客户端把会话绑在 空白4 的会话上，
+   * 用户在对话里按停止 ⇒ 停的是一条空闲会话 ⇒ 「停止键没用」。
+   * ⇒ 认哪部片是**宿主的事实**，存下来，重启后照旧。
+   */
+  const currentFile = roots && roots[0] ? join(roots[0], '.filmflow-current.json') : '';
+  if (!CURRENT && currentFile) {
+    try {
+      const j = JSON.parse(readFileSync(currentFile, 'utf8'));
+      const r = String((j && j.root) || '').trim();
+      if (r && existsSync(r)) {
+        CURRENT = r;
+        trace('当前项目（上次的）：' + CURRENT);
+      }
+    } catch { /* 没有就没有：等客户端 select 过来 */ }
+  }
+  const saveCurrent = () => {
+    if (!currentFile) return;
+    try {
+      mkdirSync(join(roots[0]), { recursive: true });
+      writeFileSync(currentFile, JSON.stringify({ root: CURRENT, at: new Date().toISOString() }, null, 2));
+    } catch { /* 存不下不影响这一轮 */ }
+  };
 
   /*
    * ★ 启动时生成写操作令牌（每个进程一个，重启就换）。
@@ -6828,6 +7997,42 @@ export function apply(ctx, config) {
            */
           try {
             MEDIA.attachLatest(root, p.stages || []);
+            	/* 分镜表列升级 + 内联声明同步（2026-11-03：**每次建 state 都跑**）。
+            	 * 规则（列、doctrine）会一直演进，只在"第一次"同步就等于让它过期；
+            	 * 代价只是读一遍 project.json 比字符串，而 buildProject 本来就把所有 md 读了一遍。 */
+            	try {
+            		const d0 = readDecl(join(root, DECL)).decl;
+            		const mr = migrateStoryboardTable(root, d0);
+            		/* 老片子的内联列/内联指令跟着换 */
+            		if (mr.declChanged) {
+            			try {
+            				writeFileSync(join(root, '.film', 'project.json.bak-' + Date.now().toString(36)), readFileSync(join(root, DECL)));
+            			} catch { /* 备份失败也照写，下面有 trace */ }
+            			writeFileSync(join(root, DECL), JSON.stringify(d0, null, 2) + '\n', 'utf8');
+            			trace('[分镜表升级] ' + root + ' 声明已同步（内联列/指令）' + (mr.doctrineSynced ? '，指令 ' + mr.doctrineSynced + ' 处' : ''));
+            		}
+            		if (mr.changed) {
+            			try {
+            				writeFileSync(join(root, '.film', 'storyboard-v3.json'), JSON.stringify({ at: new Date().toISOString(), ...mr }, null, 2) + '\n', 'utf8');
+            			} catch { /* 标记写不下不影响这轮 */ }
+            		}
+            		/* 旧式生成节点 → 表行（自己一个标记，别跟表头升级混在一起） */
+            		try {
+            			const gmFile = join(root, '.film', 'genrows-v3.json');
+            			if (!existsSync(gmFile)) {
+            				const d1 = readDecl(join(root, DECL)).decl;
+            				const gm = migrateGenNodesToRows(root, d1);
+            				if (gm.moved) writeFileSync(join(root, DECL), JSON.stringify(d1, null, 2) + '\n', 'utf8');
+            				writeFileSync(gmFile, JSON.stringify({ at: new Date().toISOString(), ...gm }, null, 2) + '\n', 'utf8');
+            				if (gm.moved) trace('[生成节点→表行] ' + root + ' 搬了 ' + gm.moved + ' 个，留着 ' + gm.kept + ' 个');
+            			}
+            		} catch (e) {
+            			trace('[生成节点→表行] 跳过：' + String((e && e.message) || e));
+            		}
+            } catch (e) {
+            	trace('[分镜表升级] 跳过：' + String((e && e.message) || e));
+            }
+            attachRowGen(root, p.stages || []);
           } catch (e) {
             trace('[媒体] 补 latest 失败：' + String((e && e.message) || e));
           }
@@ -7035,6 +8240,7 @@ export function apply(ctx, config) {
             }
             if (!hit) return sendJson(res, 404, { ok: false, error: '没有这个项目：' + String(body.root || body.id) });
             CURRENT = hit.root;
+            saveCurrent();
             trace('当前项目切换为 ' + CURRENT);
             return sendJson(res, 200, { ok: true, current: CURRENT, title: hit.title });
           },
@@ -7103,7 +8309,14 @@ export function apply(ctx, config) {
               try {
                 sessionId = String(JSON.parse(readFileSync(file, 'utf8')).sessionId || '');
               } catch { /* 还没绑过 */ }
-              return sendJson(res, 200, { ok: true, root, sessionId });
+              /* 顺带把「被换掉的历史会话」也带出去，方便界面上切回（2026-11-03） */
+              let history = [];
+              try {
+                history = JSON.parse(readFileSync(join(root, '.film', 'session-history.json'), 'utf8'));
+              } catch { history = []; }
+              const rich = (Array.isArray(history) ? history : []).map((h) => ({ ...h, meta: sessionFileMeta(h && h.sessionId) }));
+              const curMeta = sessionFileMeta(sessionId);
+              return sendJson(res, 200, { ok: true, root, sessionId, meta: curMeta, history: rich });
             }
 
             const sessionId = String(body.sessionId || '').trim();
@@ -7327,12 +8540,29 @@ export function apply(ctx, config) {
                * 正文是内容 ⇒ 走 propose + 人工确认；
                * 只有**改名**（确定性替换）才自动统一，见 structureOp 里的 autoUnify。
                */
+              let beforeText = '';
+              try {
+                beforeText = readFileSync(abs, 'utf8');
+              } catch { /* 文件还不存在：那就是第一次写，算有内容 */ }
               const r = applyEdit(root, body);
               trace('[写回] ' + JSON.stringify(r));
               sendJson(res, 200, { ok: true, ...r });
 
-              // ★ 「插件先向 Agent 发送一次调用」—— 就是这儿
-              if (autoWake) {
+              /*
+               * ★ 「插件先向 Agent 发送一次调用」—— 就是这儿。
+               *   但**只在这回写真的改了内容时**才叫（2026-11-03，用户：
+               *   「我就手动添加一行空表格程序有必要触发 agent 吗？」）。
+               *   加一行空行 / 删空行 / 调格式都不叫 —— 那是版面操作，
+               *   它除了回一句「没有下游节点受影响」什么也干不了。
+               */
+              let afterText = '';
+              try {
+                afterText = readFileSync(abs, 'utf8');
+              } catch { afterText = ''; }
+              const substantive = beforeText === '' || editHasSubstance(beforeText, afterText);
+              if (!substantive) {
+                trace('[不叫醒] 这次写回只是版面改动（空行/空表格行/格式），没有内容要 agent 判断');
+              } else if (autoWake) {
                 try {
                   const p0 = buildProject(root);
                   wakeAgent(
@@ -7357,6 +8587,69 @@ export function apply(ctx, config) {
     trace('已注册路由 /filmflow/edit');
   } catch (e) {
     trace('注册 /filmflow/edit 抛出: ' + String((e && e.stack) || e));
+  }
+
+  /* ---- /filmflow/units ---- 生成单元（镜头组）：读 / 交（校验后落盘） */
+  try {
+    ctx.effect(
+      () =>
+        webServer.register({
+          kind: 'exact',
+          path: '/filmflow/units',
+          handler: async (req, res) => {
+            try {
+              const u0 = new URL(req.url || '/', 'http://x');
+              const want = String(u0.searchParams.get('root') || '').replace(/[\\/]+$/, '').toLowerCase();
+              let root = discoverProjects(roots, explicit).find((r) => r.toLowerCase() === want);
+              if (!root && req.method === 'POST') {
+                let b0 = {};
+                try { b0 = JSON.parse(await readBody(req)); } catch { /* 下面报错 */ }
+                const w2 = String(b0?.root || '').replace(/[\\/]+$/, '').toLowerCase();
+                root = discoverProjects(roots, explicit).find((r) => r.toLowerCase() === w2);
+                if (!root) return sendJson(res, 400, { ok: false, error: 'root 不在已发现的项目里' });
+                if (!requireToken(req, res)) return;
+                const d0 = readDecl(join(root, DECL)).decl;
+                const model = String(b0?.model || DEFAULT_VIDEO_MODEL);
+                const v = validateUnits(root, d0, b0?.units, model);
+                if (!v.ok) {
+                  trace('[生成单元被拒] ' + root + '：' + v.errors.slice(0, 3).join('；'));
+                  return sendJson(res, 400, { ok: false, errors: v.errors, warnings: v.warnings });
+                }
+                writeUnits(root, { model, units: v.units });
+                trace('[生成单元] ' + root + ' 收了 ' + v.units.length + ' 个单元（' + v.rows.length + ' 行）');
+                return sendJson(res, 200, { ok: true, units: v.units, warnings: v.warnings });
+              }
+              if (!root) return sendJson(res, 400, { ok: false, error: 'root 不在已发现的项目里' });
+              const d0 = readDecl(join(root, DECL)).decl;
+              const rows = storyboardRows(root, d0);
+              const cur = readUnits(root);
+              const model = cur.model || DEFAULT_VIDEO_MODEL;
+              /* 顺带把"当前这份分组还能不能过校验"算出来 —— 分镜改过之后就能看出它过期了 */
+              let check = { ok: true, errors: [], warnings: [] };
+              if (cur.units.length) {
+                const v = validateUnits(root, d0, cur.units, model);
+                check = { ok: v.ok, errors: v.errors, warnings: v.warnings };
+              }
+              return sendJson(res, 200, {
+                ok: true,
+                rows,
+                model,
+                span: VIDEO_SPAN[model] || VIDEO_SPAN[DEFAULT_VIDEO_MODEL],
+                comfortable: UNIT_COMFORTABLE,
+                units: cur.units,
+                at: cur.at || '',
+                check,
+              });
+            } catch (e) {
+              sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+            }
+          },
+        }),
+      'filmflow: /filmflow/units',
+    );
+    trace('已注册路由 /filmflow/units');
+  } catch (e) {
+    trace('注册 /filmflow/units 抛出: ' + String((e && e.stack) || e));
   }
 
   /* ---- POST /filmflow/apply ---- 下游直写（上游改动引起过期时，agent 可直接写） */
@@ -7502,6 +8795,232 @@ export function apply(ctx, config) {
         }),
       'filmflow: /filmflow/media',
     );
+
+    /* ---- /filmflow/gen ---- 分镜表的**行内生成**（2026-11-03：生成不再是一个节点） ----
+     *
+     * 行不是节点，但生成器要一个带 key/media 的对象 ⇒ 见 media service 的 startJobFor。
+     * 归属键统一 `镜<镜号>`，资产/用量都记在它名下（行删了成片也还在素材库里）。
+     */
+    try {
+      ctx.effect(
+        () =>
+          webServer.register({
+            kind: 'exact',
+            path: '/filmflow/gen',
+            handler: async (req, res) => {
+              try {
+                const u0 = new URL(req.url || '/', 'http://x');
+                const wantRoot = String(
+                  req.method === 'POST' ? '' : (u0.searchParams.get('root') || ''),
+                ).replace(/[\\/]+$/, '').toLowerCase();
+                let body = {};
+                if (req.method === 'POST') {
+                  body = JSON.parse(await readBody(req));
+                }
+                const want = String(req.method === 'POST' ? (body.root || '') : u0.searchParams.get('root') || '')
+                  .replace(/[\\/]+$/, '').toLowerCase();
+                const root = discoverProjects(roots, explicit).find((r) => r.toLowerCase() === want);
+                if (!root) return sendJson(res, 400, { ok: false, error: 'root 不在已发现的项目里' });
+
+                if (req.method !== 'POST') {
+                  /* 读：每一行现在是什么状态 */
+                  const jobs = MEDIA.listJobs(root);
+                  const assets = MEDIA.readAssets(root).items || [];
+                  const gen = readGen(root);
+                  const rows = {};
+                  const nos = new Set([...Object.keys(gen.rows), ...jobs.map((j) => String(j.key).replace(/^镜/, ''))]);
+                  for (const no of nos) rows[no] = genStateOf(root, no, jobs, assets);
+                  return sendJson(res, 200, { ok: true, rows, orphans: gen.orphans });
+                }
+
+                if (!requireToken(req, res)) return;
+                const action = String(body.action || 'gen');
+                const no = String(body.no == null ? '' : body.no).trim();
+
+                /*
+                 * ★ 单元级操作（2026-11-03）：一个单元 = 一次生成任务，覆盖 1..N 个镜。
+                 *   genUnit / cancelUnit / setUnitPrompt —— 键统一 `组<id>`，
+                 *   成片和用量都记在单元名下，组内各行只是"分到哪一段"。
+                 */
+                const unitId = String(body.id || '').trim();
+                if (unitId && ['genUnit', 'cancelUnit', 'setUnitPrompt'].includes(action)) {
+                  const U = readUnits(root);
+                  const u = U.units.find((x) => String(x.id) === unitId);
+                  if (!u) return sendJson(res, 404, { ok: false, error: '没有这个生成单元：' + unitId + '（先用 filmflow_units 分好组）' });
+                  const key = unitKeyOf(unitId);
+                  if (action === 'cancelUnit') return sendJson(res, 200, MEDIA.cancelJob(root, key));
+                  const gen = readGen(root);
+                  const cur = (gen.unitRows || {})[unitId] || { attempts: [] };
+                  if (action === 'setUnitPrompt') {
+                    cur.id = unitId;
+                    cur.covers = (u.covers || []).map(String);
+                    cur.prompt = String(body.prompt == null ? '' : body.prompt);
+                    cur.updatedAt = new Date().toISOString();
+                    gen.unitRows = { ...(gen.unitRows || {}), [unitId]: cur };
+                    writeGen(root, gen);
+                    return sendJson(res, 200, { ok: true, id: unitId, prompt: cur.prompt });
+                  }
+                  const decl0 = readDecl(join(root, DECL)).decl;
+                  const wantNos = new Set((u.covers || []).map(String));
+                  const rowsIn = storyboardRows(root, decl0).filter((r) => wantNos.has(String(r.no)));
+                  const prompt = String(body.prompt != null && String(body.prompt).trim()
+                    ? body.prompt
+                    : (cur.prompt || composeUnitPrompt(rowsIn))).trim();
+                  if (!prompt) return sendJson(res, 400, { ok: false, error: '这个单元没有提示词（组内各镜的画面/台词都是空？）' });
+                  const model = String(body.model || cur.model || U.model || DEFAULT_VIDEO_MODEL);
+                  const r = MEDIA.startJobFor(root, {
+                    key,
+                    title: '组' + unitId + '（镜' + (u.covers || []).join('/') + '）',
+                    media: { type: 'video', model, prompt, durationSec: Number(u.durationSec) || 0, ...(body.params || {}) },
+                  });
+                  cur.id = unitId;
+                  cur.covers = (u.covers || []).map(String);
+                  cur.prompt = prompt;
+                  cur.model = model;
+                  cur.durationSec = Number(u.durationSec) || 0;
+                  cur.attempts = [...(cur.attempts || []), { at: new Date().toISOString(), model, prompt: prompt.slice(0, 400) }].slice(-20);
+                  cur.updatedAt = new Date().toISOString();
+                  gen.unitRows = { ...(gen.unitRows || {}), [unitId]: cur };
+                  writeGen(root, gen);
+                  trace('[单元生成] ' + unitId + ' 镜' + (u.covers || []).join('/') + ' ' + model + ' ' + (Number(u.durationSec) || '?') + 's');
+                  return sendJson(res, 200, r);
+                }
+                if (!no) return sendJson(res, 400, { ok: false, error: '要给镜号（no）' });
+
+                if (action === 'cancel') {
+                  return sendJson(res, 200, MEDIA.cancelJob(root, genKeyOf(no)));
+                }
+                if (action === 'setPrompt') {
+                  const gen = readGen(root);
+                  const cur = gen.rows[no] || { attempts: [] };
+                  cur.prompt = String(body.prompt == null ? '' : body.prompt);
+                  if (body.model) cur.model = String(body.model);
+                  cur.updatedAt = new Date().toISOString();
+                  gen.rows[no] = cur;
+                  writeGen(root, gen);
+                  return sendJson(res, 200, { ok: true, no, prompt: cur.prompt });
+                }
+                if (action === 'gen') {
+                  const gen = readGen(root);
+                  const cur = gen.rows[no] || { attempts: [] };
+                  const prompt = String(body.prompt != null && String(body.prompt).trim()
+                    ? body.prompt
+                    : (cur.prompt || '')).trim();
+                  if (!prompt) {
+                    return sendJson(res, 400, { ok: false, error: '这一行还没有提示词：先让 agent 汇总，或在行详情里写' });
+                  }
+                  const type = String(body.type || cur.type || 'video');
+                  const model = String(body.model || cur.model || '');
+                  const r = MEDIA.startJobFor(root, {
+                    key: genKeyOf(no),
+                    title: '镜' + no,
+                    media: { ...(body.params || {}), type, model, prompt },
+                  });
+                  cur.prompt = prompt;
+                  cur.model = model;
+                  cur.type = type;
+                  cur.attempts = [...(cur.attempts || []), { at: new Date().toISOString(), model, type, prompt: prompt.slice(0, 400) }].slice(-20);
+                  cur.updatedAt = new Date().toISOString();
+                  gen.rows[no] = cur;
+                  writeGen(root, gen);
+                  trace('[行内生成] 镜' + no + ' ' + type + ' ' + model);
+                  return sendJson(res, 200, r);
+                }
+                return sendJson(res, 400, { ok: false, error: '不认识的 action：' + action });
+              } catch (e) {
+                const msg = String((e && e.message) || e);
+                trace('[行内生成] 失败：' + msg);
+                sendJson(res, 400, { ok: false, error: msg });
+              }
+            },
+          }),
+        'filmflow: /filmflow/gen',
+      );
+      trace('已注册路由 /filmflow/gen');
+    } catch (e) {
+      trace('注册 /filmflow/gen 抛出: ' + String((e && e.stack) || e));
+    }
+
+    /* ---- POST /filmflow/reference ---- 参考资料文件（2026-11-02：点按钮选文件，不手填） */
+    try {
+      ctx.effect(
+        () =>
+          webServer.register({
+            kind: 'exact',
+            path: '/filmflow/reference',
+            handler: async (req, res) => {
+              if (!requireToken(req, res)) return;
+              if (req.method !== 'POST') {
+                res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8', Allow: 'POST' });
+                res.end('只支持 POST');
+                return;
+              }
+              let body = {};
+              try {
+                /* 上限 64MB：base64 之后大概能装 45MB 的原稿，够用了 */
+                body = JSON.parse((await readBody(req, 64 * 1024 * 1024)) || '{}');
+              } catch {
+                sendJson(res, 400, { ok: false, error: '请求体不是合法 JSON' });
+                return;
+              }
+              try {
+                const wantRoot = String(body.root || '').replace(/[\\/]+$/, '').toLowerCase();
+                const root = wantRoot
+                  ? discoverProjects(roots, explicit).find((r) => r.toLowerCase() === wantRoot)
+                  : '';
+                if (!root) throw new Error('没有这个项目：' + String(body.root || ''));
+                const dir = join(root, '参考');
+                const ONLY = new Set(['.docx', '.txt', '.md', '.markdown']);
+                const safeName = (raw) => {
+                  const base = String(raw || '').split(/[\\/]/).pop().replace(/[<>:"|?*\u0000-\u001f]/g, '').trim();
+                  if (!base || base === '.' || base === '..') throw new Error('文件名不合法：' + String(raw || ''));
+                  const ext = ('.' + (String(base).split('.').pop() || '')).toLowerCase();
+                  if (!ONLY.has(ext)) throw new Error('只收 Word(.docx) / TXT / Markdown：' + base);
+                  return base;
+                };
+                const action = String(body.action || 'add');
+                if (action === 'add') {
+                  const list = Array.isArray(body.files) ? body.files : [];
+                  if (!list.length) throw new Error('没有文件');
+                  mkdirSync(dir, { recursive: true });
+                  const added = [];
+                  for (const f of list) {
+                    const name = safeName(f && f.name);
+                    const buf = Buffer.from(String((f && f.data) || ''), 'base64');
+                    if (!buf.length) throw new Error('文件是空的：' + name);
+                    if (buf.length > 20 * 1024 * 1024) throw new Error('单个文件不能超过 20MB：' + name);
+                    writeFileSync(join(dir, name), buf);
+                    added.push(name);
+                  }
+                  sendJson(res, 200, { ok: true, added });
+                  wakeForRefs(ctx, roots[0], root, '加了 ' + added.length + ' 个文件：' + added.join('、'), trace);
+                  return;
+                }
+                if (action === 'remove') {
+                  const name = safeName(body.name);
+                  /*
+                   * ⚠ 这里**不能用 rmSync**（2026-11-02 实测）：Node 24.13 在这台机器上删文件名带《》的文件
+                   * 会**原生崩进程**（退出码 0xC0000409，try/catch 都兜不住）—— 用户桌面上就是这么把片场服务弄挂的。
+                   * unlinkSync 同样删文件、不崩。
+                   */
+                  if (existsSync(join(dir, name))) unlinkSync(join(dir, name));
+                  sendJson(res, 200, { ok: true, removed: name });
+                  wakeForRefs(ctx, roots[0], root, '删掉了 ' + name, trace);
+                  return;
+                }
+                throw new Error('不认识的 action：' + action);
+              } catch (e) {
+                sendJson(res, 400, { ok: false, error: String((e && e.message) || e) });
+              }
+            },
+          }),
+        'filmflow: POST /filmflow/reference',
+      );
+      trace('已注册路由 /filmflow/reference');
+    } catch (e) {
+      trace('注册 /filmflow/reference 抛出: ' + String((e && e.stack) || e));
+    }
+
     trace('已注册路由 /filmflow/media');
   } catch (e) {
     trace('注册 /filmflow/media 抛出: ' + String((e && e.stack) || e));
@@ -8068,10 +9587,20 @@ export function apply(ctx, config) {
                   && ['renameSection', 'rename', 'delete', 'add', 'move', 'expand'].includes(opType);
                 if (meaningful) {
                   const p0 = buildProject(root);
+                  const template = String(body?.op?.template || '');
                   const what = opType === 'renameSection'
                     ? '「' + String(r.before || '') + '」改名为「' + String(r.title || '') + '」（' + String(r.src || '') + '）'
-                    : '结构变更：' + opType;
-                  wakeAgent(ctx, root, roots[0], composeWake(p0, what, staleOf(p0)), trace);
+                    : ('结构变更：' + opType + (template ? '（模板 ' + template + '）' : ''));
+                  /*
+                   * 新建空人名节点 = 一个明确的触发点：agent 应该**直接提结构提案**把名字填上，
+                   * 而不是回一句「要我按名单填上去吗？」（用户 2026-11-03 明确不要那种问法）。
+                   */
+                  const hint = (opType === 'add' && template === 'character-one')
+                    ? ('刚在「' + String(body?.op?.at || '人物') + '」下面建了一个**空标题**的人名节点（key ' + String(r.key || '') + '）。'
+                      + '如果参考资料/名单里有对应的人名，**直接 filmflow_propose({struct:{op:"rename",key:"' + String(r.key || '') + '",title:"那个人名"}, why:"..."})** 出一张卡让用户确认；'
+                      + '不要在对话里问「要不要填」。')
+                    : '';
+                  wakeAgent(ctx, root, roots[0], composeWake(p0, what, staleOf(p0), hint), trace);
                 }
               } catch (e) {
                 trace('[结构-叫醒失败] ' + String((e && e.message) || e));
@@ -8233,7 +9762,25 @@ export function apply(ctx, config) {
                  * 报「不认识的结构操作：」空字符串）。
                  */
                 const s = pr.struct;
-                const r = structureOp(root, { ...s, type: String(s.type || s.op || ''), by: 'agent', why: String(pr.why || '') });
+                const batchKeys = Array.isArray(s.keys) ? s.keys.map(String).filter(Boolean) : [];
+                let r;
+                if (String(s.op || s.type || '') === 'delete' && batchKeys.length > 1) {
+                  /*
+                   * 批量删除（2026-11-03）：41 个「镜XX」节点一条卡一次点，别让人点 41 次。
+                   * 逐个走 structureOp（每次都重新读盘、按 key 定位）⇒ key 稳定，删一个不影响下一个。
+                   */
+                  const done = [];
+                  const failed = [];
+                  for (const k of batchKeys) {
+                    try { done.push(structureOp(root, { ...s, keys: undefined, key: k, type: 'delete', by: 'agent', why: String(pr.why || '') })); }
+                    catch (e) { failed.push(k + '：' + String((e && e.message) || e)); }
+                  }
+                  if (!done.length && failed.length) throw new Error('一个都没删掉：' + failed.slice(0, 3).join('；'));
+                  r = { ok: failed.length === 0, type: 'delete', count: done.length, failed: failed.slice(0, 20) };
+                  trace('[批量删除] 成功 ' + done.length + ' / 失败 ' + failed.length);
+                } else {
+                  r = structureOp(root, { ...s, type: String(s.type || s.op || ''), by: 'agent', why: String(pr.why || '') });
+                }
                 pr.status = 'approved';
                 pr.handledAt = new Date().toISOString();
                 pr.result = r;
@@ -8454,10 +10001,39 @@ export function apply(ctx, config) {
               if (existsSync(dest)) throw new Error('已经有一个叫「' + name + '」的了');
 
               // 以「新片」那份通用模板为底；模板目录不存在时用内置骨架（打包不带项目数据，2026-10-29）
-              const tpl = join(roots[0], '新片', DECL);
-              const decl = existsSync(tpl)
-                ? JSON.parse(readFileSync(tpl, 'utf8'))
-                : defaultProject();
+              /*
+               * ★ 2026-11-03：**固定用内置骨架**，不再读 `新片/` 那份 project.json。
+               *
+               * 原因：片子格式在演进（生成内化成表格里的一格、分镜表 8 列），而 `新片/` 是一份
+               * 真实项目文件 —— 它没跟着升级时，新建出来的片子又退回老骨架（生成视频阶段 + 3 列表）。
+               * 内置骨架（host/default-project.js）才是唯一真源，改了这里不用再去动某个项目。
+               */
+              const decl = defaultProject();
+              /*
+               * 新建片子时把声明里提到的 md 文件**建出来**（内容只有一行标题）。
+               *
+               * 不建的话，分镜表这类节点当天就没有正文文件 ⇒ 画布判 `editable=false` ⇒
+               * 连「＋ 加一行」都不给（2026-11-03 实测：新建的片子点不了加行）。
+               */
+              const createDeclaredFiles = (root, d) => {
+                const made = [];
+                const walk = (list) => {
+                  for (const n of list || []) {
+                    for (const rel of [].concat(n.md || []).map(String)) {
+                      const abs = join(root, ...rel.split('/'));
+                      if (existsSync(abs)) continue;
+                      try {
+                        mkdirSync(dirname(abs), { recursive: true });
+                        writeFileSync(abs, '# ' + String(n.title || '') + '\n', 'utf8');
+                        made.push(rel);
+                      } catch { /* 单个失败不影响建片 */ }
+                    }
+                    walk(n.children);
+                  }
+                };
+                walk(d && d.stages);
+                return made;
+              };
               /*
                * 片名后缀 / 项目说明跟着**选的预设**走。
                * 原来无论选什么包都写「对白悬疑片」，做纪录片时标题和 note 都是错的
@@ -8467,17 +10043,29 @@ export function apply(ctx, config) {
               const packMeta = (packIdEarly && packIdEarly !== 'plain')
                 ? readPacks().find((p) => String(p.id) === packIdEarly) || null
                 : null;
+              /*
+               * ★ 空白预设（2026-11-02 用户：「不要标准五道工序，新建一个空白预设」）：
+               *   选它 = **一道工序都不铺**，建出来就是空画布，自己在上面加。
+               */
+              const isBlank = !!(packMeta && packMeta.empty);
+              if (isBlank) decl.stages = [];
               decl.id = name;
-              decl.title = name + ' · ' + (packMeta ? String(packMeta.title || '') : '对白悬疑片');
+              decl.title = isBlank ? name : (name + ' · ' + (packMeta ? String(packMeta.title || '') : '对白悬疑片'));
               const baseFirst = String(decl.note || '').split('\n')[0];
-              decl.note = (packMeta
-                ? '【这是什么项目】' + String(packMeta.title || '') + '（预设：' + String(packMeta.id || '') + '）'
-                  + (packMeta.note ? '\n【整体流程】' + String(packMeta.note) : '')
-                : baseFirst)
-                + '\n【这一部】' + name;
+              decl.note = isBlank
+                ? ('【这是什么项目】空白项目：工序自己在画布上加\n【这一部】' + name)
+                : ((packMeta
+                  ? '【这是什么项目】' + String(packMeta.title || '') + '（预设：' + String(packMeta.id || '') + '）'
+                    + (packMeta.note ? '\n【整体流程】' + String(packMeta.note) : '')
+                  : baseFirst)
+                  + '\n【这一部】' + name);
 
               mkdirSync(join(dest, '.film'), { recursive: true });
               writeFileSync(join(dest, DECL), JSON.stringify(decl, null, 2) + '\n', 'utf8');
+              try {
+                const made = createDeclaredFiles(dest, decl);
+                if (made.length) trace('[新建片] 建了 ' + made.length + ' 个正文文件');
+              } catch (e) { trace('[新建片] 建正文文件失败：' + String((e && e.message) || e)); }
               for (const d of ['设定', '剧本', '音频提示词', '视频提示词', 'tools']) {
                 mkdirSync(join(dest, d), { recursive: true });
               }
@@ -8487,7 +10075,7 @@ export function apply(ctx, config) {
                */
               let packResult = null;
               const packId = String(body?.pack || '').trim();
-              if (packId && packId !== 'plain') {
+              if (packId && packId !== 'plain' && !isBlank) {
                 try {
                   packResult = applyPack(dest, packId);
                 } catch (e) {
@@ -8506,6 +10094,63 @@ export function apply(ctx, config) {
       'filmflow: POST /filmflow/newproject',
     );
     trace('已注册路由 /filmflow/newproject');
+
+  /* ---- POST /filmflow/deleteproject ---- 把一部片挪进「_已删除」（可找回，不永久删） */
+  try {
+    ctx.effect(
+      () =>
+        webServer.register({
+          kind: 'exact',
+          path: '/filmflow/deleteproject',
+          handler: async (req, res) => {
+            if (!requireToken(req, res)) return;
+            if (req.method !== 'POST') {
+              res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8', Allow: 'POST' });
+              res.end('只支持 POST');
+              return;
+            }
+            let body;
+            try {
+              body = JSON.parse(await readBody(req));
+            } catch {
+              return sendJson(res, 400, { ok: false, error: '请求体不是合法 JSON' });
+            }
+            const wanted = String(body?.root || '').replace(/[\\/]+$/, '').toLowerCase();
+            const root = discoverProjects(roots, explicit).find((r) => r.toLowerCase() === wanted);
+            if (!root) return sendJson(res, 400, { ok: false, error: 'root 不在已发现的项目里' });
+            /*
+             * 二次确认：必须把**目录名**原样发回来。
+             * 这是删东西的入口，一个 root 字符串太容易点错/被前端 bug 传错。
+             */
+            const name = basename(root);
+            if (String(body?.confirm || '').trim() !== name) {
+              return sendJson(res, 400, { ok: false, error: '确认名不对：要删的话把目录名「' + name + '」原样发回来' });
+            }
+            /*
+             * ★ 不永久删：挪到同级的 `_已删除\<名字>-<时间戳>`。
+             * 用户的项目里全是手写正文，删错了没法重来；挪走还能自己搬回来。
+             * `_已删除` 目录里没有 `.film/project.json` 的直系子目录，discoverProjects 不会把它当片子。
+             */
+            const parent = dirname(root);
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const target = join(parent, '_已删除', name + '-' + stamp);
+            try {
+              mkdirSync(dirname(target), { recursive: true });
+              renameSync(root, target);
+            } catch (e) {
+              return sendJson(res, 500, { ok: false, error: '挪不动：' + String((e && e.message) || e) });
+            }
+            trace('[删项目] ' + root + ' → ' + target);
+            if (String(CURRENT || '').replace(/[\\/]+$/, '').toLowerCase() === wanted) { CURRENT = ''; saveCurrent(); }
+            sendJson(res, 200, { ok: true, name, movedTo: target });
+          },
+        }),
+      'filmflow: POST /filmflow/deleteproject',
+    );
+    trace('已注册路由 /filmflow/deleteproject');
+  } catch (e) {
+    trace('注册 /filmflow/deleteproject 抛出: ' + String((e && e.stack) || e));
+  }
   } catch (e) {
     trace('注册 /filmflow/newproject 抛出: ' + String((e && e.stack) || e));
   }
@@ -8544,9 +10189,18 @@ export function apply(ctx, config) {
               return;
             }
             pushFeed(root, 'user', text);
-            // 用户说的话原样送进去，前面加一句上下文（那个 Agent 不知道是谁在说）
-            wakeAgent(ctx, root, roots[0], '【用户在对你说】\n' + text + '\n\n（按规矩办：先 filmflow_board 看全貌；没内容要改就直接 sync，要改内容再用 filmflow_propose 提案。）', trace);
-            sendJson(res, 200, { ok: true });
+            /*
+             * 用户说的话原样送进去，前面加一句上下文（那个 Agent 不知道是谁在说）
+             *
+             * ★ 2026-11-03：这里**必须等**结果再回 —— 从前是 fire-and-forget，
+             *   叫不醒也回 `{ok:true}`，界面那边就是「点了没反应、也没报错」。
+             */
+            const rec = await wakeAgent(ctx, root, roots[0], '【用户在对你说】\n' + text + '\n\n（按规矩办：先 filmflow_board 看全貌；没内容要改就直接 sync，要改内容再用 filmflow_propose 提案。）', trace);
+            if (!rec) {
+              sendJson(res, 503, { ok: false, error: '这条会话被别处占着，叫不醒（看 filmflow-trace.log 里 resume 那几行）' });
+              return;
+            }
+            sendJson(res, 200, { ok: true, sessionId: rec.sessionId || '', borrowed: !!rec.borrowed });
           },
         }),
       'filmflow: POST /filmflow/say',
@@ -8597,6 +10251,9 @@ export function apply(ctx, config) {
   /** 对象型参数（用于 struct 这种结构化入参）。 */
   const pObj = (desc) => ({ type: 'object', description: desc, additionalProperties: true });
   const pNum = (desc) => ({ type: 'number', description: desc });
+const pBool = (desc) => ({ type: 'boolean', description: desc });
+  /** 数组型参数（生成单元的那种 `[{id,covers,durationSec,why}]`）。 */
+  const pArr = (desc) => ({ type: 'array', description: desc, items: { type: 'object', additionalProperties: true } });
 
   /** 按名字/路径挑项目；不给就全部。 */
   const pickProjects = (want) => {
@@ -8794,6 +10451,8 @@ export function apply(ctx, config) {
           na: 'na（未声明产物，不是没开工）',
         };
         bits.push('状态 ' + (ST_TXT[n.status] || n.status || 'na'));
+        /* 真 key 必须给出去：结构提案要用它，用编号/标题很容易对不上（2026-11-03） */
+        bits.push('key ' + String(n.key || ''));
         /*
          * ★ **正文有没有内容** —— 这是 agent 判断"这一步做完没有"真正该看的。
          *   原来只有一个含义不明的 `内容 N`，而且 contentTotal 为 0 时干脆不显示 ✗
@@ -8802,6 +10461,8 @@ export function apply(ctx, config) {
         bits.push('正文 ' + (bodyLen ? '有（' + bodyLen + ' 字）' : '无'));
         if (n.md && n.md.length) bits.push('写 ' + n.md.join(' '));
         if (n.files && n.files.length) bits.push('写 ' + n.files.join(' '));
+        /* 参考资料（2026-11-02）：把文件名直接摆给 agent —— 它看不到目录，不说就不知道读什么 */
+        if (n.refFiles && n.refFiles.length) bits.push('参考 ' + n.refFiles.map((f) => f.path).join(' '));
         if (n.stale === 'stale') bits.push('⚠过期（去看一眼，不一定要改）');
         else if (n.stale === 'unknown') bits.push('未同步（从没跟上游对齐过）');
         L.push('');
@@ -8863,7 +10524,19 @@ export function apply(ctx, config) {
     L.push('');
     L.push('读 ← ' + ((n.dependsOn || []).length ? depLabel(p, n.dependsOn) : '（没有声明上游）'));
     L.push('写 → ' + (n.md && n.md.length ? n.md.join(' / ') : n.files && n.files.length ? n.files.join(' / ') : '（没声明产物路径）'));
+    /* 参考资料（2026-11-02）：把它读到的原稿列给 agent，并给出读法 */
+    if (Array.isArray(n.refFiles) && n.refFiles.length) {
+      L.push('参考文件：' + n.refFiles.map((f) => f.path + '（' + Math.max(1, Math.round((f.bytes || 0) / 1024)) + ' KB）').join(' / '));
+      L.push('  ↑ 用户自己的原稿，只读；要看内容就 filmflow_read({path:"' + n.refFiles[0].path + '"})');
+    }
     L.push('形态：' + ((n.shape && n.shape.kind) || 'text'));
+    L.push('key：' + String(n.key || '') + '（提结构提案时用它；编号也行）');
+    /* 媒体节点：把成片/图片的绝对路径给出去 —— agent 的 read_image 只认绝对路径 */
+    if (n.media && n.media.latest && n.media.latest.src) {
+      const absFile = join(p.root, ...String(n.media.latest.src).split('/'));
+      L.push('成片：' + absFile);
+      if (/\.(png|jpe?g|webp|gif)$/i.test(absFile)) L.push('  ↑ 图片，可以用 read_image 看一眼');
+    }
     L.push(
       '同步状态：' +
         (n.stale === 'stale'
@@ -8995,7 +10668,7 @@ export function apply(ctx, config) {
             why: pStr('为什么这么改 —— 用户要看的就这一句，说人话，别复述指令'),
             struct: pObj(
               '要**改结构**时填它（用户 2026-10-21：agent 也可以提议增删节点）。'
-              + ' 形如 {"op":"delete","key":"k5"} / {"op":"add","at":"k1","template":"facts"}'
+              + ' 形如 {"op":"delete","key":"k5"}（**批量删除用 {"op":"delete","keys":["k5","k6",…]}**，一张卡删多个，别一个节点一张卡） / {"op":"add","at":"k1","template":"facts"}'
               + ' / {"op":"move","key":"k1-3","dir":"up"} / {"op":"rename","key":"k1-3","title":"事实列"}。'
               + ' add 也可以自建：title（节点名）、doctrine（五段指令）、'
               + ' shape（{"kind":"list|table|matrix|text",…}；list/matrix 要 fields，table 要 columns）、'
@@ -9023,15 +10696,46 @@ export function apply(ctx, config) {
            * 改**结构**也该走同一条路：agent 能说"我建议删掉 ⑤"，但不能自己删。
            * 宿主在这里只**记**提案，真正动手在 /filmflow/approve 里。
            */
-          const struct = args && args.struct;
+          /*
+           * ★ 入参是**冻结对象**：框架把 tool 参数 Object.freeze 了，
+           *   往 struct.key 上赋值会抛 `Cannot assign to read only property 'key'`
+           *   （2026-11-03 实测：agent 每次 delete 提案都报这个，41 个「镜XX」节点删不掉）。
+           *   ⇒ 归一化一律在**副本**上做，原入参只读。
+           */
+          const rawStruct = args && args.struct;
+          const struct = rawStruct && typeof rawStruct === 'object' ? { ...rawStruct } : rawStruct;
           if (struct && typeof struct === 'object') {
             const op = String(struct.op || '');
             const allowed = ['add', 'delete', 'move', 'rename', 'expand'];
             if (!allowed.includes(op)) throw new Error('struct.op 只认：' + allowed.join(' / '));
             /* 结构合法性：在提案时就挡住（R47）。改内容不经过这里。 */
             if (op === 'add') validateAddProposal(p.root, struct);
+            /*
+             * 2026-11-03：把 key/编号/标题统一解析成**真 key** 再存提案。
+             * 解析不到就当场报错，并把它能用的写法列出来 —— 别等用户点确认才「作废」。
+             */
+            if (op !== 'add') {
+              const { decl } = readDecl(join(p.root, DECL));
+              const want = Array.isArray(struct.keys) ? struct.keys.map(String) : [String(struct.key || '')];
+              const got = [];
+              const bad = [];
+              for (const one of want) {
+                const loc = locateNodeLoose(decl.stages || [], one);
+                if (loc) { const k = String(loc.node.key || ''); if (k && !got.includes(k)) got.push(k); }
+                else bad.push(one);
+              }
+              if (bad.length) {
+                const names = [];
+                const walkN = (list) => { for (const n of list || []) { names.push((n.no ? n.no + ' ' : '') + String(n.title || '') + '（key ' + String(n.key) + '）'); walkN(n.children); } };
+                walkN(decl.stages || []);
+                throw new Error('找不到节点：' + bad.join('、') + '。现成的节点：\n' + names.slice(0, 40).join('\n'));
+              }
+              struct.key = got[0] || '';
+              if (got.length > 1) struct.keys = got;
+            }
             const label = (() => {
               if (op === 'add') return '在「' + String(struct.at || '') + '」下新建' + (struct.template ? '（模板 ' + struct.template + '）' : '');
+              if (op === 'delete' && Array.isArray(struct.keys) && struct.keys.length > 1) return '删除 ' + struct.keys.length + ' 个节点（' + struct.keys.slice(0, 3).join('、') + (struct.keys.length > 3 ? '…' : '') + '）';
               if (op === 'delete') return '删除节点「' + String(struct.key || '') + '」';
               if (op === 'move') return '把「' + String(struct.key || '') + '」' + (struct.dir === 'up' ? '上移' : '下移');
               if (op === 'rename') return '把「' + String(struct.key || '') + '」改名为「' + String(struct.title || '') + '」';
@@ -9067,6 +10771,15 @@ export function apply(ctx, config) {
 
           const n = findNode(p, args && args.node);
           if (!n) throw new Error('找不到「' + (args && args.node) + '」这个节点。可用的钥匙：\n' + nodeKeys(p));
+          /*
+           * ★ 参考资料节点只读（2026-11-03 用户）。
+           * 它没有 src（文件是用户在画布上选的），所以本来就落不了盘；这里把话说清楚，
+           * 免得 agent 反复试 propose 再反复失败。
+           */
+          if (Array.isArray(n.refFiles) && n.refFiles.length) {
+            throw new Error('「' + (n.no || n.title) + '」是**参考资料** —— 用户的原稿，只读。'
+              + ' 参考资料只有一份原稿，别改它；要基于它产出内容，就 propose 改**下游节点**（人物/场景/剧本/分镜…）。');
+          }
           if (!n.src) throw new Error('节点「' + (n.no || n.title) + '」没有声明源文件，没法提案');
 
           const { decl } = readDecl(join(p.root, DECL));
@@ -9221,6 +10934,101 @@ export function apply(ctx, config) {
        * 确认生成由用户手动点击生成节点上的按钮完成。」
        * ⇒ 这个工具只能改媒体节点的提示词/模型/参数；**没有任何参数能让它发起生成**。
        */
+      /*
+       * 第八把工具：**划分生成单元**（只分组，不生成、不改分镜）。
+       *
+       * 用户 2026-11-03 指出的硬矛盾：分镜里大量 1 秒以内的镜头，
+       * 而 Seedance 最短 4 秒 ⇒ 生成任务和分镜行**不是 1:1**；
+       * 为了让连续动作不抖，还经常要几镜一次生成再剪开。
+       * ⇒ 分镜是**剪辑单位**，生成单元是**素材单位**，两层。
+       */
+      reg({
+        name: 'filmflow_units',
+        description: [
+          '划分「生成单元」：一次生成任务覆盖哪几个镜头。**只决定分组**，不改分镜内容、不发起生成。',
+          '',
+          '为什么不传 units 时先调一次：它会返回**分镜每一行的镜号+时长**、当前分组、以及模型的最短/最长时长。',
+          '',
+          '**一条硬规矩：短于 4 秒的镜头必须和相邻镜并成一个单元**，不许单独生成（单镜生成 = 拿 4 秒换 1 秒，纯亏）。',
+          '4 秒及以上的镜：同场景 + 同机位 + 连续动作时也鼓励并（更省、接得更顺）；换场/换机位/换说话人时可以不并。',
+          '',
+          '**一次生成是一个连续镜头，中间不会有剪辑点**；并组之后按「多镜头一次生成」来写：',
+          '`镜头1：机位/运镜、景别；画面内容；声音/台词：…` `镜头2：…` ……（顺序就是剪辑顺序，不写秒数）。',
+          '',
+          '**时长**：单元时长 = max(4, ceil(各镜时长合计 + 0.3~0.5))，整秒；2.5 是 4–30s，2.0 是 4–15s。',
+          '组内合计超过 10 秒只提醒（越长越漂）；超模型上限必须拆，拆点放在动作完成或视线转移之后。',
+          '',
+          '**必须能过校验（不合格一个字节都不写）**：每镜恰好出现一次、顺序与分镜一致、时长在区间内且 ≥ 合计、每单元都写 why、短镜不许单独成组。',
+          '',
+          '**不许**：改分镜内容；把一句台词切在两个单元之间（口型和气口会断）；静默丢镜。',
+          '',
+          '**什么时候重划**：分镜增删或改了时长/场景之后，只重算受影响的相邻组，不要整体重排；用户手动调过的组不要动。',
+        ].join('\n'),
+        parameters: params(
+          {
+            project: pStr('已绑死到当前项目，传了也会被忽略'),
+            units: pArr('分组结果：[{id,covers:["12","13"],durationSec:6,why:"同机位连续动作；镜12抬手，镜13放下"}]；不传则只读当前分组与规则'),
+            model: pStr('可选：按哪个视频模型算时长区间（默认取上次存的那个，否则 Seedance 2.5）'),
+          },
+          [],
+        ),
+        output: { schema: OUT_SCHEMA, render: OUT_RENDER },
+        async execute(args) {
+          const ps = pickProjects(args && args.project);
+          if (!ps.length) throw new Error('没找到项目');
+          const p = ps[0];
+          const d0 = readDecl(join(p.root, DECL)).decl;
+          const cur = readUnits(p.root);
+          const model = String((args && args.model) || cur.model || DEFAULT_VIDEO_MODEL);
+          const span = VIDEO_SPAN[model] || VIDEO_SPAN[DEFAULT_VIDEO_MODEL];
+
+          if (!args || !Array.isArray(args.units) || !args.units.length) {
+            const rows = storyboardRows(p.root, d0);
+            const L = [];
+            L.push('项目：' + p.title + '（' + p.root + '）');
+            L.push('分镜行 ' + rows.length + ' 个；模型 ' + model + '，单元时长 ' + span.min + '–' + span.max + ' 秒，组内舒适上限 ' + UNIT_COMFORTABLE + ' 秒。');
+            L.push('');
+            L.push('各行（镜号｜时长秒｜画面内容前 24 字｜台词前 16 字）：');
+            for (const r of rows.slice(0, 200)) {
+              L.push('  ' + r.no + '｜' + (r.dur || '?') + '｜' + r.pic.slice(0, 24) + '｜' + r.line.slice(0, 16));
+            }
+            if (rows.length > 200) L.push('  …（还有 ' + (rows.length - 200) + ' 行，用 filmflow_node 读全文）');
+            L.push('');
+            if (cur.units.length) {
+              const v = validateUnits(p.root, d0, cur.units, model);
+              L.push('当前分组 ' + cur.units.length + ' 个单元（' + (cur.at || '') + '）：' + (v.ok ? '仍然通过校验' : '已过期：' + v.errors.slice(0, 3).join('；')));
+              for (const u of cur.units) L.push('  · ' + u.id + ' ' + u.durationSec + 's ← 镜 ' + (u.covers || []).join(',') + '（' + String(u.why || '').slice(0, 40) + '）');
+            } else {
+              L.push('当前还没有分组。');
+            }
+            L.push('');
+            L.push('按工具说明里的硬边界与合并条件分组，然后**再调一次本工具并传 units**。');
+            return { report: L.join('\n') };
+          }
+
+          const v = validateUnits(p.root, d0, args.units, model);
+          if (!v.ok) {
+            throw new Error('分组没通过校验（一个字节都没写）：\n- ' + v.errors.join('\n- '));
+          }
+          writeUnits(p.root, { model, units: v.units });
+          trace('[生成单元] ' + p.root + ' agent 交了 ' + v.units.length + ' 个单元（' + v.rows.length + ' 行）');
+          const L = [];
+          L.push('已写入 ' + v.units.length + ' 个生成单元，覆盖 ' + v.rows.length + ' 个镜头（模型 ' + model + '）。');
+          for (const u of v.units) {
+            const sum = (u.covers || []).reduce((a, no) => a + ((v.rows.find((r) => String(r.no) === String(no)) || {}).dur || 0), 0);
+            L.push('  · ' + u.id + ' ' + u.durationSec + 's ← 镜 ' + u.covers.join(',') + '（合计 ' + sum + 's）');
+          }
+          if (v.warnings.length) {
+            L.push('');
+            L.push('提醒：');
+            for (const w of v.warnings) L.push('  ! ' + w);
+          }
+          L.push('');
+          L.push('分组只决定"哪几镜一起生成"，**不会**自己发任务；生成由你在画布上点。');
+          return { report: L.join('\n') };
+        },
+      });
+
       reg({
         name: 'filmflow_set_media',
         description: [
@@ -9582,8 +11390,24 @@ export function apply(ctx, config) {
           const abs = fsWithin(root, args && args.path);
           if (!existsSync(abs)) throw new Error('文件不存在：' + String(args && args.path));
           const st = statSync(abs);
+          /* 2026-11-02：给目录就列文件 —— agent 看不到画布目录，列一次胜过瞎猜路径 */
+          if (st.isDirectory()) {
+            const items = readdirSync(abs, { withFileTypes: true })
+              .map((d) => ({ name: d.name, dir: d.isDirectory() }))
+              .sort((a2, b2) => (a2.dir === b2.dir ? a2.name.localeCompare(b2.name) : a2.dir ? -1 : 1));
+            const lines = items.map((d) => (d.dir ? '[目录] ' : '       ') + d.name);
+            return {
+              report: '目录：' + String(args && args.path) + '（' + items.length + ' 项）\n' + (lines.join('\n') || '（空）')
+                + '\n\n下一步：filmflow_read({path:"' + String(args && args.path).replace(/\/+$/, '') + '/文件名"})',
+            };
+          }
           if (!st.isFile()) throw new Error('不是文件：' + String(args && args.path));
-          const raw = readFileSync(abs, 'utf8');
+          const low = String(args && args.path).toLowerCase();
+          if (low.endsWith('.doc')) throw new Error('旧版 .doc 是二进制格式，读不了；请另存为 .docx 或 .txt/.md 再放进来。');
+          if (/\.(png|jpe?g|webp|gif|mp4|mov|mp3|wav|zip|pdf)$/.test(low)) {
+            throw new Error('这是二进制/媒体文件，filmflow_read 只读文本；Word 请存成 .docx。');
+          }
+          const raw = low.endsWith('.docx') ? docxToText(abs) : readFileSync(abs, 'utf8');
           const all = raw.split(/\r?\n/);
           const from = Math.max(1, Number(args && args.from) || 1);
           const take = Math.max(1, Math.min(2000, Number(args && args.lines) || 400));
@@ -9625,6 +11449,19 @@ export function apply(ctx, config) {
         async execute(args) {
           const root = boundProject(args).root;
           const abs = fsWithin(root, args && args.path);
+          /*
+           * ★ 参考资料**只读**（2026-11-03 用户）：那是用户自己的原稿，agent 一律不许改。
+           * 要落东西就写 资料/ 之类的新文件；要基于参考稿产出内容，走 filmflow_propose 改下游节点。
+           */
+          try {
+            const { decl: d0 } = readDecl(join(root, DECL));
+            if (isReferenceFile(root, d0, abs)) {
+              throw new Error('「' + String(args && args.path) + '」是**参考资料**（用户的原稿）—— 只读，不许改。'
+                + ' 要放你写的东西，写到 资料/ 下；要改画布上的文字，用 filmflow_propose。');
+            }
+          } catch (e) {
+            if (/参考资料/.test(String((e && e.message) || e))) throw e;
+          }
           if (isNodeArtifact(root, abs)) {
             throw new Error('「' + String(args && args.path) + '」是节点产物文件 —— '
               + '改节点正文请用 filmflow_propose（用户点确认后由宿主落盘）；'
@@ -9728,21 +11565,30 @@ export function apply(ctx, config) {
           '',
           '`model` 可以给模型 id（`doubao-seedance-2-5-260628`）或名字（`Seedance 2.5` / `Seedream 5.0` / `音频`）。',
           '返回：该模型的硬指标、结构公式、可用句式、负向控制、常见坑。',
+          '',
+          '`full: true` = 连**完整 skill 全文**一起给（Seedance 2.5 → docs/sd25-pe-SKILL.md，Seedance 2.0 → docs/sd2-pe-SKILL.md）。',
+          '要用在多宫格分镜、多个参考素材编号编排、编辑/首尾帧/延长、画面文字渲染这类**步骤化**写法时再要全文；',
+          '日常一镜一条提示词用速查就够，不必为了简单镜头拉几万字。',
         ].join('\n'),
         parameters: params({
           model: pStr('模型 id 或名字，例如 "Seedance 2.5"、"doubao-seedream-5-0-pro-260628"、"音频"'),
+          full: pBool('要完整 skill 全文就传 true（只有 Seedance 2.0 / 2.5 有全文）'),
         }),
         output: { schema: OUT_SCHEMA, render: OUT_RENDER },
         async execute(args) {
           const raw = String((args && args.model) || '').trim();
           if (!raw) throw new Error('要给我模型名或 id');
           const s = raw.toLowerCase();
-          let file = '';
-          if (/audio|音频|seed-audio|音频生成/.test(s)) file = 'seed-audio-1.md';
+                    let file = '';
+          let family = '';
+          if (/audio|音频|seed-audio|音频生成/.test(s)) { file = 'seed-audio-1.md'; family = 'audio'; }
           else if (/seedance|视频|视频生成/.test(s)) {
-            file = /2[.\-]?5/.test(s) ? 'seedance-2.5.md' : 'seedance-2.0.md';
+            const is25 = /2[.\-]?5/.test(s);
+            file = is25 ? 'seedance-2.5.md' : 'seedance-2.0.md';
+            family = is25 ? 'sd25' : 'sd2';
           } else if (/seedream|图片|图片生成/.test(s)) {
             file = /4[.\-]?[05]/.test(s) ? 'seedream-4.md' : 'seedream-5.md';
+            family = 'seedream';
           } else {
             file = '';
           }
@@ -9757,10 +11603,37 @@ export function apply(ctx, config) {
           } catch (e) {
             throw new Error('指南文件读不到（' + file + '）：' + String((e && e.message) || e));
           }
+          /*
+           * 2026-11-02（用户：「所有视频图片的 prompt skill 片厂都装上了吗」）：
+           * 速查只有 1–3KB；多宫格分镜、参考素材编号编排、编辑/首尾帧/延长、画面文字渲染
+           * 这些步骤化写法都在完整 skill 里 —— 要细节就 full=true 给全文，日常镜头仍用速查。
+           */
+          if (args && args.full) {
+            const FULL = { sd25: 'sd25-pe-SKILL.md', sd2: 'sd2-pe-SKILL.md' };
+            const fn = FULL[family];
+            if (fn) {
+              const DOCDIR = join(dirname(fileURLToPath(import.meta.url)), 'docs');
+              let fullText = '';
+              try {
+                fullText = readFileSync(join(DOCDIR, fn), 'utf8');
+              } catch (e) {
+                throw new Error('完整 skill 读不到（docs/' + fn + '）：' + String((e && e.message) || e));
+              }
+              return {
+                report: '【' + raw + '】完整提示词 skill（docs/' + fn + '，' + fullText.length + ' 字）\n\n'
+                  + fullText.slice(0, 45000)
+                  + '\n\n==== 速查版（日常镜头看这份就够）====\n\n' + text.slice(0, 6000),
+              };
+            }
+          }
+          const tail = (args && args.full)
+            ? '\n\n==== 说明 ====\n  这个模型没有官方完整 skill（图片只有 Seedream 官方写法指南），上面就是全部；画幅/时长/分辨率写进节点参数。'
+            :
+              '\n\n==== 下一步 ====\n  按这份写法改提示词；画幅/时长/分辨率/声音开关写进节点参数，不要写进正文。'
+                + '\n  要步骤化细节（多宫格分镜／参考素材编排／编辑与延长／画面文字）就再调一次带 full: true。';
           return {
             report: '【' + raw + '】提示词写法速查（来自片厂 guides/' + file + '）\n\n'
-              + text.slice(0, 12000)
-              + '\n\n==== 下一步 ====\n  按这份写法改提示词；画幅/时长/分辨率/声音开关写进节点参数，不要写进正文。',
+              + text.slice(0, 12000) + tail,
           };
         },
       });
