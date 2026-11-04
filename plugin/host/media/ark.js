@@ -35,7 +35,8 @@ export const VIDEO_MODELS = {
 /** 图片模型 */
 export const IMAGE_MODELS = {
   'doubao-seedream-5-0-pro-260628': { label: 'Seedream 5.0 pro', tiers: ['1K', '2K', '3K', '4K'] },
-  'doubao-seedream-5-0-260128': { label: 'Seedream 5.0 lite', tiers: ['1K', '2K', '4K'] },
+  /* 官方已下线（AgentPlan skill v5.2.6：请求前直接拒绝 Lite），留档只为认旧项目 */
+  'doubao-seedream-5-0-260128': { label: 'Seedream 5.0 lite（已下线）', tiers: ['1K', '2K', '4K'] },
   'doubao-seedream-5-0-flash-260915': { label: 'Seedream 5.0 flash', tiers: ['1K', '2K', '4K'] },
   'doubao-seedream-4-5-251128': { label: 'Seedream 4.5', tiers: ['2K', '4K'] },
   'doubao-seedream-4-0-250828': { label: 'Seedream 4.0', tiers: ['1K', '2K', '4K'] },

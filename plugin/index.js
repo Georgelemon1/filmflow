@@ -47,6 +47,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { createMediaService, contentTypeOf } from './host/media/service.js';
+import { VIDEO_MODELS } from './host/media/ark.js';
 import {
   ROLE_PARENTS,
   roleChildrenTable,
@@ -528,6 +529,7 @@ function migrateStoryboardTable(root, decl) {
     ['景别', 'shot'],
     ['运镜', 'move'], ['机位', 'move'], ['机位/运镜', 'move'], ['机位·运镜', 'move'],
     ['画面', 'pic'], ['画面内容', 'pic'],
+    ['画风', 'look'], ['画面风格', 'look'], ['美术', 'look'], ['美术风格', 'look'], ['风格', 'look'],
     ['台词', 'line'], ['台词/声音', 'line'], ['台词·声音', 'line'],
     ['备注', 'note'],
     ['场景', 'scene'], // 只用来并进 pic
@@ -1077,7 +1079,17 @@ function applyPackTree(root, pack) {
 }
 
 /** 一次请求最多读多少请求体（诊断用，防止无界缓冲）。 */
-const MAX_BODY = 64 * 1024;
+/*
+ * 普通 POST 的请求体上限。原来是 64KB —— 长提示词/整表编辑很容易顶到，
+ * 而且超限会被静默截断（前端报「Unterminated string in JSON」）。现在 2MB，超限直接报错。
+ */
+const MAX_BODY = 2 * 1024 * 1024;
+/*
+ * 参考图上传专用上限（2026-11-04）：base64 会把体积撑大 1/3，
+ * 64KB 的老上限会把上传体**静默截断**，前端报「Unterminated string in JSON at position …」。
+ * 单图 12MB（服务端还会再拦一道）→ base64 ≈ 16MB，再留余量。
+ */
+const MAX_UPLOAD_BODY = 24 * 1024 * 1024;
 
 /**
  * 诊断日志。best-effort：追踪绝不能成为插件加载失败的原因
@@ -1542,6 +1554,49 @@ function parseTable(text, shape) {
   if (real.length === 0) return null; // 没解析出表格 → 不是这个形态
 
   return { kind: 'table', columns: cols, groups: real };
+}
+
+/**
+ * 表格节点**直接写**之前的校验（2026-11-04）。
+ *
+ * 为什么要它：表格节点允许 agent 直写（用户：「每一处都要确认的话根本点不完」），
+ * 但整份 markdown 是它自己拼的 —— 表头写歪一个词，31 行就整列错位、还看不出来。
+ * 所以落盘前必须：① 能解析出表格；② 表头各列与 shape 一模一样；③ 有数据行；④ 镜号不重复。
+ *
+ * @returns `{ok, rows, error}`
+ */
+function checkTableWrite(shape, text, prevRows) {
+  const cols = (Array.isArray(shape && shape.columns) ? shape.columns : []).map((c) => String(c.label || c.key || ''));
+  const wantHead = '| ' + cols.join(' | ') + ' |';
+  const parsed = parseTable(text, shape);
+  if (!parsed) {
+    return { ok: false, rows: 0, error: '正文里没有能识别的表格。第一行要写表头 `' + wantHead + '`，第二行写分隔线，再往下才是数据行。' };
+  }
+  const lines = String(text ?? '').split(/\r?\n/).filter((l) => /^\s*\|/.test(l) && !isTableSep(l));
+  const headCells = splitRow(lines[0] || '').map((s) => String(s).trim());
+  const norm = (s) => String(s).replace(/[·・／]/g, '/').replace(/[（）]/g, (m) => (m === '（' ? '(' : ')')).replace(/\s+/g, '');
+  const want = cols.map(norm);
+  const got = headCells.map(norm);
+  if (got.length !== want.length || want.some((w, i) => got[i] !== w)) {
+    return { ok: false, rows: 0, error: '表头不对。必须一字不差地是：`' + wantHead + '`（顺序也不许变）；你给的是：`| ' + headCells.join(' | ') + ' |`' };
+  }
+  const rows = parsed.groups.reduce((n, g) => n + (g.rows || []).length, 0);
+  if (!rows) return { ok: false, rows: 0, error: '表格里没有数据行 —— 要清空表格请让用户在画布上删行，别用直写整份覆盖。' };
+  /* 镜号（key=no 那一列）必须非空且不重复：重复了分组/生成全会错位 */
+  const noCol = (shape.columns || []).find((c) => String(c.key) === 'no' || /镜号/.test(String(c.label || '')));
+  if (noCol) {
+    const seen = new Set();
+    const dup = [];
+    for (const g of parsed.groups) for (const r0 of g.rows || []) {
+      const v = String(r0[String(noCol.key)] ?? '').trim();
+      if (!v) { dup.push('（空镜号）'); continue; }
+      if (seen.has(v)) dup.push(v);
+      seen.add(v);
+    }
+    if (dup.length) return { ok: false, rows, error: '镜号有问题：' + (dup.slice(0, 6).join('、')) + (dup.length > 6 ? ' 等' : '') + ' 重复或为空 —— 每一行的镜号必须唯一。' };
+  }
+  const drop = prevRows > 0 && rows < prevRows * 0.5 ? '（原来 ' + prevRows + ' 行，现在只剩 ' + rows + ' 行 —— 确认这是有意的）' : '';
+  return { ok: true, rows, note: drop };
 }
 
 function renderTable(data) {
@@ -2825,13 +2880,31 @@ function applyDownstream(root, req) {
   if (!n) throw new Error('找不到节点：' + want);
   if (!n.src) throw new Error('节点「' + (n.no || n.title) + '」没有声明源文件，写不了');
   /*
+   * 表格节点（分镜脚本这类）**允许随时直写** —— 用户 2026-11-04：
+   * 「分镜脚本添加很多东西是批量的，每一处都要用户手动确认的话很多时候根本点不完」。
+   * 代价用三重护栏兜住：表头逐列校验、镜号唯一、整份落盘前自动备份。
+   */
+  const isTable = !!(n.shape && n.shape.kind === 'table');
+  let tinfo = null;
+  if (isTable) {
+    let prevRows = 0;
+    try {
+      const cur0 = parseTable(readFileSync(join(root, ...String(n.src).split('/')), 'utf8'), n.shape);
+      if (cur0) prevRows = cur0.groups.reduce((a, g) => a + ((g.rows || []).length), 0);
+    } catch { /* 文件还不存在 → prevRows 0 */ }
+    tinfo = checkTableWrite(n.shape, String(req?.text ?? ''), prevRows);
+    if (!tinfo.ok) throw new Error(tinfo.error);
+    tinfo.prevRows = prevRows;
+  }
+  /*
    * ★ 授权判据：**它现在必须是因为上游改动而过期**。
    *   这不是"agent 说是这个方向"就算，而是宿主自己算出来的状态 —— 骗不了。
    */
-  if (n.stale !== 'stale') {
+  if (!isTable && n.stale !== 'stale') {
     throw new Error(
       '节点「' + (n.no || n.title) + '」现在不是"上游改过导致过期"的状态（stale=' + String(n.stale || 'none') + '）。'
-      + '这种情况属于新改动 ⇒ 请用 filmflow_propose 提案，等用户确认。',
+      + '正文类节点的这种新改动要走 filmflow_propose 提案，等用户确认。'
+      + '（表格节点可以直接写 —— 这类节点不受这条限制。）',
     );
   }
   const r = applyEdit(root, {
@@ -2846,10 +2919,16 @@ function applyDownstream(root, req) {
   logChange(root, {
     op: 'applyDownstream', key: String(n.key || n.no || ''), title: String(n.title || ''),
     by: 'agent', why: String(req?.why || ''),
-    detail: '上游改动引起的同步（已授权直写）→ ' + String(n.src),
+    detail: (tinfo ? '表格直写（' + tinfo.prevRows + ' → ' + tinfo.rows + ' 行）' : '上游改动引起的同步（已授权直写）') + ' → ' + String(n.src),
   });
-  trace('[下游直写] ' + (n.no || n.title) + ' ← ' + String(req?.why || ''));
-  return { ok: true, src: n.src, mode: r.mode, node: String(n.no || n.title) };
+  trace('[下游直写] ' + (n.no || n.title) + (tinfo ? '（表格 ' + tinfo.prevRows + '→' + tinfo.rows + ' 行）' : '') + ' ← ' + String(req?.why || ''));
+  return {
+    ok: true,
+    src: n.src,
+    mode: r.mode,
+    node: String(n.title || n.no),
+    table: tinfo ? { rows: tinfo.rows, before: tinfo.prevRows, note: tinfo.note || '' } : null,
+  };
 }
 /** 媒体生成服务（进程内单例）：资产库 + 任务队列。 */
 const MEDIA = createMediaService({
@@ -4424,20 +4503,223 @@ function unitKeyOf(id) { return '组' + String(id == null ? '' : id).trim(); }
  * **不写秒数**（参数分离），备注集中挂在最后。
  * @param {Array<{pic:string,line:string,dur:number,note?:string}>} rows - 组内各镜（按分镜顺序）
  */
-function composeUnitPrompt(rows) {
-  const parts = [];
+/** 元素种类 → 参考它什么（写进【参考素材职责】）。 */
+const REF_KIND_DESC = {
+  person: '五官、发型与服装',
+  scene: '空间布局、墙面与光位',
+  prop: '结构、材质与颜色',
+  look: '画风、色调与质感',
+};
+
+/**
+ * 本单元的参考素材段：编号 + 逐份职责 + 主体映射。
+ *
+ * 编号规则（设计文档 §5）：**作用域 = 本单元**，按元素在本单元的首次出场顺序分配；
+ * 一个元素多张图就连号。agent 不写编号，编号永远由这里算 —— 换图不会让任何提示词失效。
+ */
+function refsBlock(rows, refs) {
+  const list = (refs || []).filter((el) => el && el.state !== 'skip' && (el.images || []).length);
+  if (!list.length) return { duties: [], relations: [], images: [] };
+  const order = [];
+  /*
+   * 编号顺序 = 元素在本单元的**首次出场顺序**（官方：按人物首次出场顺序上传参考素材）。
+   * 同一镜里出现多个时按它们在文字里的先后来排 —— 不是按元素库里的顺序。
+   */
+  const posOf = (text, el) => {
+    const body = refNameKey(text);
+    const names = [String(el.name || ''), ...(Array.isArray(el.aliases) ? el.aliases : [])]
+      .map(refNameKey).filter((x) => x.length >= 2);
+    let best = -1;
+    for (const n of names) { const i = body.indexOf(n); if (i >= 0 && (best < 0 || i < best)) best = i; }
+    return best;
+  };
+  for (const r of rows || []) {
+    const text = [r.shot, r.pic, r.line, r.note].join('　');
+    const hits = list
+      .filter((el) => !order.includes(el))
+      .map((el) => ({ el, at: posOf(text, el) }))
+      .filter((x) => x.at >= 0)
+      .sort((a, b) => a.at - b.at);
+    for (const x of hits) if (!order.includes(x.el)) order.push(x.el);
+  }
+  for (const el of list) if (!order.includes(el)) order.push(el);
+  let n = 0;
+  const numbered = order.map((el) => {
+    const from = n + 1;
+    n += el.images.length;
+    return { el, from, to: n, imgs: el.images.slice() };
+  });
+  const duties = [];
+  const relations = [];
+  const images = [];
+  for (const x of numbered) {
+    const desc = REF_KIND_DESC[String(x.el.kind || 'person')] || REF_KIND_DESC.person;
+    for (const p of x.imgs) images.push(String(p));
+    if (x.from === x.to) {
+      duties.push('@图片' + x.from + '用于' + x.el.name + '的' + desc + (String(x.el.kind) === 'scene' ? '，不采用图中人物。' : '，不采用图片背景。'));
+      relations.push(x.el.name + '对应@图片' + x.from + '。');
+    } else {
+      duties.push('@图片' + x.from + '~@图片' + x.to + '共同定义' + x.el.name + '（不同视角或状态），不生成多个副本。');
+      relations.push(x.el.name + '对应@图片' + x.from + '~@图片' + x.to + '。');
+    }
+  }
+  /* 同一人物多个变体（唐老板 / 唐老板·年轻版）：说清关系，别让模型互相换脸 */
+  const byBase = new Map();
+  for (const x of numbered) {
+    const b = refNameKey(x.el.base || x.el.name);
+    if (!byBase.has(b)) byBase.set(b, []);
+    byBase.get(b).push(x);
+  }
+  for (const arr of byBase.values()) {
+    if (arr.length < 2) continue;
+    relations.push(arr.map((x) => x.el.name).join(' 与 ') + '是同一人物的不同时期或装束，各自的参考图不得互相替换，同一画面中不得出现两个相同年龄段的脸。');
+  }
+  return { duties, relations, images };
+}
+
+/** 把提示词里旧的【参考素材职责】/【主体与关系】段剥掉（生成前按当前绑定重算，保证编号对得上）。 */
+function stripRefSections(text) {
+  return String(text || '')
+    .replace(/【参考素材职责】[\s\S]*?(?=\n\s*【|$)/g, '')
+    .replace(/【主体与关系】[\s\S]*?(?=\n\s*【|$)/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** 生成前用当前绑定重算参考段并拼到最前面。 */
+function withFreshRefs(prompt, rows, refs) {
+  const base = stripRefSections(prompt);
+  const b = refsBlock(rows, refs);
+  const head = [];
+  if (b.duties.length) head.push('【参考素材职责】', ...b.duties);
+  if (b.relations.length) head.push('【主体与关系】', ...b.relations);
+  return [...head, base].filter(Boolean).join('\n');
+}
+
+/**
+ * 把一行台词写成官方/skill 认的台词记号：`{…}`。
+ * sd25-pe：「需要区分内容类型时使用：音乐 () / 音效 <> / 台词 {} / 字幕 【】」。
+ * 一格里可能有多位说话人（用 ；隔开），逐个转成 `角色说：{…}`，并回填 speakers。
+ */
+function dialogueOfUnit(cell, speakers) {
+  const raw = String(cell || '').trim();
+  if (!raw) return '';
+  const segs = raw.split(/[；;]/).map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  for (const s of segs) {
+    const m = /^([^：:]{1,14})[：:]([\s\S]+)$/.exec(s);
+    if (m) {
+      const who = m[1].trim();
+      speakers.push(who);
+      out.push(who + '说：{' + m[2].trim() + '}');
+    } else {
+      /* 没有「角色：」前缀 → 可能是音效/环境声描述，原样保留，别硬套台词记号 */
+      out.push(s);
+    }
+  }
+  return out.join('；');
+}
+
+/**
+ * 把一个单元里各镜拼成提示词 —— 按 sd25-pe 的结构来写（2026-11-04）：
+ *
+ *   【事件脚本】镜头1：景别，画面（运镜）；角色说：{台词}  镜头2：…
+ *   【保持一致】同一场景 / 人物身份与服装 / 说话人不变 / 备注里的硬要求
+ *
+ * 几条口径：
+ *   · 台词用 `{}`（官方 + skill 的记号），音效 `<>`、音乐 `()`、字幕 `【】` 原样保留；
+ *   · 运镜贴在它服务的画面后面（离开目标的「推」只是个动词，前置还占掉句首）；
+ *   · 「固定」省略（默认就是不动）；一镜一种运镜，多个由 validateUnits 提醒；
+ *   · 不自己加画质包/稳定包/水印/不要字幕这类通用负向约束（sd25-pe 原则 8）；
+ *   · 【参考素材职责】【未采用素材】需要参考素材槽才有内容，暂不产出（没有素材就不编）。
+ */
+function composeUnitPrompt(rows, refs) {
+  const beats = [];
   const notes = [];
+  const speakers = [];
+  const scenes = [];
   (rows || []).forEach((r, i) => {
+    const shot = String(r.shot || '').trim();
+    const pic = String(r.pic || '').trim();
+    const cam = String(r.move || '').trim();
+    const sc = /^([^｜|]{1,12})[｜|]/.exec(pic);
+    if (sc) scenes.push(sc[1].trim());
+    const camMoves = cam && !/^(固定|固定镜头|不动|静止|固定机位)$/.test(cam);
     const seg = [];
-    const cam = [r.move, r.shot].map((x) => String(x || '').trim()).filter(Boolean).join('、');
-    if (cam) seg.push(cam);
-    if (r.pic) seg.push(String(r.pic).trim());
-    if (r.line) seg.push('声音/台词：' + String(r.line).trim());
-    if (seg.length) parts.push('镜头' + (i + 1) + '：' + seg.join('；'));
+    let beat = [shot, pic].filter(Boolean).join('，');
+    if (beat && camMoves) beat += '（' + cam + '）';
+    if (beat) seg.push(beat);
+    const talk = dialogueOfUnit(r.line, speakers);
+    if (talk) seg.push(talk);
+    if (seg.length) beats.push('镜头' + (i + 1) + '：' + seg.join('；'));
     if (r.note) notes.push(String(r.note).trim());
   });
-  if (notes.length) parts.push('备注：' + [...new Set(notes)].join('；'));
-  return parts.join('\n');
+  const keep = [];
+  const uniqScene = [...new Set(scenes)];
+  if (uniqScene.length === 1) keep.push('同一场景：' + uniqScene[0]);
+  else if (uniqScene.length > 1) keep.push('场景按顺序：' + uniqScene.join(' → '));
+  keep.push('人物身份、服装与站位连续');
+  const uniqSpeaker = [...new Set(speakers)];
+  if (uniqSpeaker.length) keep.push('说话人不互换：' + uniqSpeaker.join('、'));
+  for (const n of [...new Set(notes)]) keep.push(n);
+  /*
+   * 画风：**每一份提示词都要带**（模型没有记忆，不写它就自己编）。
+   * 同一单元里口径一致 → 一行写清；逐镜不同（比如同组里实拍和手绘混剪、或者换了景的光色）→ 按镜头列。
+   */
+  const looks = (rows || []).map((r) => String(r.look || '').trim());
+  const uniqLook = [...new Set(looks.filter(Boolean))];
+  const lookLine = (() => {
+    if (!uniqLook.length) return '';
+    /* 空单元格 = 继承上一行；去重后只剩一种口径就写一行 */
+    if (uniqLook.length === 1) return uniqLook[0];
+    const per = [];
+    looks.forEach((x, i) => { if (x) per.push('镜头' + (i + 1) + '：' + x); });
+    return per.join('；');
+  })();
+  const parts = [];
+  if (lookLine) { parts.push('【画风】'); parts.push(lookLine + '。'); }
+  parts.push('【事件脚本】');
+  parts.push(...beats);
+  if (keep.length) { parts.push('【保持一致】'); parts.push(keep.join('；') + '。'); }
+  /* 参考素材段按当前绑定算，拼到最前面（没有绑定就什么都不加） */
+  return withFreshRefs(parts.join('\n'), rows, refs);
+}
+
+/**
+ * 提示词体检（用户 2026-11-04：「反正 agent 最后拼装出来的 prompt 都符合规范就行」）。
+ *
+ * 只管三条最容易被写错的，**只提醒不拦**（内容是创作，宿主不该替人删句子）：
+ *   ① 不要 `【未采用素材】` 段 —— 我们只把声明过的素材塞给模型，没传的它看不见，不需要禁令；
+ *   ② 参数分离：画幅「16:9」、清晰度「1080p」、帧率「24fps」不许写进正文；
+ *   ③ 台词要用 `{}`（官方 + sd25-pe 的记号）；有「角色：内容」但整段没有 `{` 就是没标。
+ * 另外顺手把 `【未采用素材】` 段剥掉，别让它在提示词里跟到生成。
+ * @returns `{ text, issues }`
+ */
+function lintUnitPrompt(raw) {
+  const issues = [];
+  let text = String(raw || '').trim();
+  /* ① 剥掉【未采用素材】段（到下一个小标题为止） */
+  const noUse = /【未采用素材】[\s\S]*?(?=\n\s*【|$)/;
+  if (noUse.test(text)) {
+    text = text.replace(noUse, '').replace(/\n{3,}/g, '\n\n').trim();
+    issues.push('已去掉【未采用素材】段 —— 我们的生成只带声明过的素材，不需要这条');
+  }
+  /* ② 参数不该写进正文 */
+  const par = [];
+  if (/\b\d{1,2}:\d{1,2}\b/.test(text)) par.push('画幅/比例');
+  if (/\b\d{3,4}p\b|\b4k\b/i.test(text)) par.push('清晰度');
+  if (/\b\d{1,3}\s*fps\b/i.test(text)) par.push('帧率');
+  if (/画幅|分辨率|帧率/.test(text)) par.push('画幅/分辨率/帧率字样');
+  if (par.length) issues.push('正文里有参数（' + [...new Set(par)].join('、') + '）—— 这些走接口参数，不写进提示词');
+  /* ③ 台词记号 */
+  if (/[：:]/.test(text) && !/\{/.test(text)) {
+    issues.push('台词没用 `{}` 包起来（写成「角色说：{…}」）');
+  }
+  /* ④ 该有镜头/阶段划分 */
+  if (!/镜头\s*\d|阶段[一二三四五六七八九十]/.test(text)) {
+    issues.push('没看到「镜头N」或「阶段」—— 多镜头单元要按顺序分段写');
+  }
+  return { text, issues };
 }
 
 /** 一个单元当前的状态（任务在跑吗 / 有没有成片 / 提示词是什么）。 */
@@ -4457,7 +4739,9 @@ function unitStateOf(root, u, jobs, assets) {
     error: job ? String(job.error || '') : '',
     asset: latest ? { id: latest.id, src: latest.src, type: latest.type, at: latest.at, model: String(latest.model || '') } : null,
     prompt: rec ? String(rec.prompt || '') : '',
+    promptSource: rec ? String(rec.source || '') : '',
     model: rec ? String(rec.model || '') : '',
+    params: rec && rec.params && typeof rec.params === 'object' ? rec.params : {},
   };
 }
 
@@ -4491,6 +4775,269 @@ const VIDEO_SPAN = {
 const DEFAULT_VIDEO_MODEL = 'doubao-seedance-2-5-260628';
 /** 组内合计的"舒适上限"：超过它就别再往里塞（越长越漂）。 */
 const UNIT_COMFORTABLE = 10;
+
+/* ══ 参考素材（.film/refs.json）══════════════════════════════════════
+ *
+ * 设计见 `设计-参考素材.md`（2026-11-04）。三条判据：
+ *   ① 一个元素 = 一套参考图的承载单位（要换图就换元素，没有 overrides）；
+ *   ② 绑定只按元素、作用域全片 —— 任何一个单元里配对一次，全表生效；
+ *   ③ agent 只提元素候选，图片只能由人绑（它判断不了哪张图是谁）。
+ */
+const REFS_FILE = join('.film', 'refs.json');
+const MATERIAL_DIR = '素材';
+
+function readRefs(root) {
+  const p = join(root, REFS_FILE);
+  if (!existsSync(p)) return { version: 1, elements: [], binding: {}, at: '' };
+  try {
+    const j = JSON.parse(readFileSync(p, 'utf8'));
+    return {
+      version: 1,
+      elements: Array.isArray(j && j.elements) ? j.elements : [],
+      binding: j && typeof j.binding === 'object' && j.binding ? j.binding : {},
+      at: String((j && j.at) || ''),
+    };
+  } catch { return { version: 1, elements: [], binding: {}, at: '' }; }
+}
+
+function writeRefs(root, data) {
+  const p = join(root, REFS_FILE);
+  mkdirSync(dirname(p), { recursive: true });
+  const body = {
+    version: 1,
+    elements: Array.isArray(data.elements) ? data.elements : [],
+    binding: data.binding && typeof data.binding === 'object' ? data.binding : {},
+    at: new Date().toISOString(),
+  };
+  const tmp = p + '.tmp';
+  writeFileSync(tmp, JSON.stringify(body, null, 2) + '\n', 'utf8');
+  writeFileSync(p, readFileSync(tmp));
+  try { writeFileSync(tmp, ''); } catch { /* 忽略 */ }
+  return body;
+}
+
+/** 元素名的归一化（比较用）：去空格、全角括号折半角、小写。 */
+const refNameKey = (s) => String(s || '').replace(/\s+/g, '').replace(/[（）]/g, (m) => (m === '（' ? '(' : ')')).toLowerCase();
+
+/** 这个人/物/景在这一段文字里出现了吗（名字或别名命中即可）。 */
+function refHits(text, el) {
+  const body = refNameKey(text);
+  if (!body) return false;
+  const names = [String(el.name || ''), ...(Array.isArray(el.aliases) ? el.aliases : [])]
+    .map(refNameKey).filter((x) => x.length >= 2);
+  return names.some((n) => body.includes(n));
+}
+
+/**
+ * 元素库为空时的**机械兜底**（2026-11-04）：从分镜表里抽候选元素 ——
+ *   场景 = 画面内容里 `｜` 之前那段；人物 = 台词格 `角色：` 前缀。
+ * 只标 `seeded: true`、state=pending，**不碰图片**；agent 之后用 `elements` 提交的会按名字归并到同一个元素上。
+ * 为什么要它：模型/agent 没分析过这张表时，元素库是空的，画布上连浅字提示都没有，用户不知道要绑什么。
+ * @returns {number} 新播种的元素个数（库里已经有元素就不动）
+ */
+function seedRefElements(root, rows) {
+  const refs = readRefs(root);
+  if ((refs.elements || []).length) return 0;
+  const list = (Array.isArray(rows) ? rows : storyboardRows(root, readDecl(join(root, DECL)).decl));
+  const scenes = new Map();
+  const people = new Map();
+  for (const r of list) {
+    const pic = String(r.pic || '').trim();
+    const mScene = /^([^｜|：:，,。]{1,12})[｜|]/.exec(pic);
+    if (mScene) {
+      const name = mScene[1].trim();
+      if (name) { if (!scenes.has(name)) scenes.set(name, []); scenes.get(name).push(String(r.no)); }
+    }
+    for (const seg of String(r.line || '').split(/[；;]/)) {
+      const mWho = /^\s*([^：:]{1,14})[：:]/.exec(seg);
+      if (!mWho) continue;
+      const name = mWho[1].trim();
+      if (!name || /[｜|，,。]/.test(name)) continue;
+      if (!people.has(name)) people.set(name, []);
+      people.get(name).push(String(r.no));
+    }
+  }
+  const els = [];
+  for (const [name, shots] of scenes) els.push({ name, kind: 'scene', shots: [...new Set(shots)] });
+  for (const [name, shots] of people) els.push({ name, kind: 'person', shots: [...new Set(shots)] });
+  if (!els.length) return 0;
+  const notes = saveRefElements(root, els);
+  const after = readRefs(root);
+  for (const el of after.elements) el.seeded = true;
+  writeRefs(root, after);
+  trace('[参考素材] ' + root + ' 自动播种 ' + els.length + ' 个候选元素（' + notes.join('；') + '）');
+  return els.length;
+}
+
+/** 一个单元里出现的元素（按分镜文字算，不依赖 agent 当时写的 units —— 重划分组也不会错）。 */
+function refsForUnit(root, unit, rows) {
+  /* 库空就机械播种一次（场景 + 说话人），否则画布上连提示都没有 */
+  try { seedRefElements(root, rows); } catch { /* 播种失败不影响画布 */ }
+  const refs = readRefs(root);
+  const covers = ((unit && unit.covers) || []).map(String);
+  const mine = (rows || []).filter((r) => covers.includes(String(r.no)));
+  const text = mine.map((r) => [r.shot, r.pic, r.line, r.note].join('　')).join('\n');
+  /*
+   * 命中规则（2026-11-04）：**元素上写了 shots（镜号）就以它为准**，没写才按名字/别名扫文字。
+   * 为什么：同一人物的不同版本（唐老板 / 唐老板·年轻版）在文字里都只是「唐老板」，
+   * 只按文字扫会把两个版本同时塞进每个单元 —— 那正是要避免的。镜号是 agent 分析的落点，稳定且不受重划分组影响。
+   */
+  const hit = (el) => {
+    const shots = Array.isArray(el.shots) ? el.shots.map(String).filter(Boolean) : [];
+    if (shots.length) return shots.some((no) => covers.includes(no));
+    return refHits(text, el);
+  };
+  return refs.elements
+    .filter(hit)
+    .map((el) => ({
+      id: String(el.id || ''),
+      name: String(el.name || ''),
+      base: String(el.base || el.name || ''),
+      kind: String(el.kind || 'person'),
+      aliases: Array.isArray(el.aliases) ? el.aliases.map(String) : [],
+      state: String(el.state || 'pending'),
+      images: ((refs.binding || {})[String(el.id || '')] || {}).images || [],
+    }));
+}
+
+/** 下一个可用元素 id（e1, e2, …） */
+function nextRefId(refs) {
+  const used = new Set((refs.elements || []).map((x) => String(x.id)));
+  for (let i = 1; i < 999; i++) if (!used.has('e' + i)) return 'e' + i;
+  return 'e' + Date.now();
+}
+
+/** 元素种类白名单 */
+const REF_KINDS = ['person', 'scene', 'prop', 'look'];
+
+/** 元素出现于哪些单元（按分镜文字算，和 refsForUnit 同一口径） */
+function refElementUnits(root, el) {
+  const d0 = readDecl(join(root, DECL)).decl;
+  const rows = storyboardRows(root, d0);
+  const units = readUnits(root).units || [];
+  const shots = Array.isArray(el.shots) ? el.shots.map(String).filter(Boolean) : [];
+  const out = [];
+  for (const u of units) {
+    const covers = (u.covers || []).map(String);
+    if (shots.length) {
+      if (shots.some((no) => covers.includes(no))) out.push(String(u.id));
+      continue;
+    }
+    const mine = rows.filter((r) => covers.includes(String(r.no)));
+    const text = mine.map((r) => [r.shot, r.pic, r.line, r.note].join('　')).join('\n');
+    if (refHits(text, el)) out.push(String(u.id));
+  }
+  return out;
+}
+
+/**
+ * agent / 用户提的元素候选落库：按名字（含别名）归并，**保留已有 id 与绑定**。
+ * 命中范围支持 `shots`（镜号，优先）或 `units`（旧写法，换算成镜号）。
+ * @returns {string[]} 给回执看的说明
+ */
+function saveRefElements(root, incoming) {
+  const notes = [];
+  const refs = readRefs(root);
+  refs.elements = Array.isArray(refs.elements) ? refs.elements : [];
+  refs.binding = refs.binding && typeof refs.binding === 'object' ? refs.binding : {};
+  const U = readUnits(root);
+  let added = 0;
+  for (const raw of Array.isArray(incoming) ? incoming : []) {
+    const name = String((raw && raw.name) || '').trim();
+    if (!name) continue;
+    const aliases = (Array.isArray(raw && raw.aliases) ? raw.aliases : []).map(String).filter(Boolean);
+    const keys = [name, ...aliases].map(refNameKey);
+    let el = refs.elements.find((x) => [x.name, ...(Array.isArray(x.aliases) ? x.aliases : [])].map(refNameKey).some((k) => keys.includes(k)));
+    const shots = Array.isArray(raw && raw.shots) ? raw.shots.map(String).filter(Boolean)
+      : (Array.isArray(raw && raw.units) ? raw.units.flatMap((uid) => {
+        const u = (U.units || []).find((x) => String(x.id) === String(uid));
+        return u ? (u.covers || []).map(String) : [];
+      }) : []);
+    if (!el) {
+      el = {
+        id: nextRefId(refs), name, base: String((raw && raw.base) || name),
+        kind: REF_KINDS.includes(String((raw && raw.kind) || '')) ? String(raw.kind) : 'person',
+        aliases, shots, state: 'pending',
+      };
+      refs.elements.push(el);
+      added += 1;
+    } else {
+      if (raw && raw.kind && REF_KINDS.includes(String(raw.kind))) el.kind = String(raw.kind);
+      if (raw && raw.base) el.base = String(raw.base);
+      if (aliases.length) el.aliases = [...new Set([...(el.aliases || []), ...aliases])];
+      if (shots.length) el.shots = [...new Set([...(el.shots || []), ...shots])];
+    }
+  }
+  writeRefs(root, refs);
+  if (added) notes.push('新增 ' + added + ' 个元素');
+  const auto = autoBindRefs(root);
+  if (auto) notes.push('自动匹配到 ' + auto + ' 张同名图');
+  const total = readRefs(root).elements.length;
+  notes.push('元素库现有 ' + total + ' 个');
+  return notes;
+}
+
+/** 给画布/工具的状态包：元素 + 绑定 + 命中单元 */
+function refsPayload(root) {
+  try { seedRefElements(root); } catch { /* 忽略 */ }
+  const refs = readRefs(root);
+  return {
+    ok: true,
+    at: refs.at || '',
+    binding: refs.binding || {},
+    elements: (refs.elements || []).map((el) => ({
+      ...el,
+      images: ((refs.binding || {})[String(el.id)] || {}).images || [],
+      units: refElementUnits(root, el),
+    })),
+  };
+}
+
+/** 上传文件名消毒：只留中英文数字下划线短横点，其余换 _ */
+function safeMaterialName(name) {
+  const base = String(name || 'ref').replace(/[^\w\u4e00-\u9fa5.-]+/g, '_').replace(/^[._]+/, '');
+  return (base || 'ref.jpg').slice(0, 80);
+}
+
+/** 自动预绑定：素材/、参考/ 里文件名（去扩展名）等于元素名或别名的图 */
+function autoBindRefs(root) {
+  const refs = readRefs(root);
+  const dirs = [MATERIAL_DIR, '参考'];
+  const files = [];
+  const walkDir = (rel) => {
+    let list = [];
+    try { list = readdirSync(join(root, ...rel.split('/'))); } catch { return; }
+    for (const name of list) {
+      const childRel = rel + '/' + name;
+      const abs = join(root, ...childRel.split('/'));
+      let st; try { st = statSync(abs); } catch { continue; }
+      if (st.isDirectory()) { walkDir(childRel); continue; }
+      if (!/\.(png|jpe?g|webp|gif)$/i.test(name)) continue;
+      files.push(childRel);
+    }
+  };
+  for (const d of dirs) walkDir(d);
+  let bound = 0;
+  for (const el of refs.elements || []) {
+    const key = String(el.id);
+    const cur = (refs.binding || {})[key];
+    if (cur && Array.isArray(cur.images) && cur.images.length) continue;
+    const names = [String(el.name || ''), ...(Array.isArray(el.aliases) ? el.aliases : [])]
+      .map((x) => refNameKey(x)).filter((x) => x.length >= 2);
+    const hit = files.find((f) => {
+      const base = String(f).split('/').pop().replace(/\.[^.]+$/, '');
+      const bk = refNameKey(base);
+      return names.some((n) => bk === n || bk.includes(n) || n.includes(bk));
+    });
+    if (!hit) continue;
+    refs.binding = refs.binding || {};
+    refs.binding[key] = { images: [hit], auto: true, at: new Date().toISOString() };
+    el.state = 'bound';
+    bound += 1;
+  }
+  if (bound) writeRefs(root, refs);
+  return bound;
+}
 
 function readUnits(root) {
   const p = join(root, UNITS_FILE);
@@ -4550,6 +5097,7 @@ function storyboardRows(root, decl) {
         const iShot = at(['景别']);
         const iMove = at(['机位/运镜', '机位·运镜', '运镜', '机位']);
         const iPic = at(['画面内容', '画面']);
+        const iLook = at(['画风', '画面风格', '美术', '美术风格', '风格']);
         const iLine = at(['台词/声音', '台词·声音', '台词']);
         const iNote = at(['备注']);
         if (iNo < 0) continue;
@@ -4563,6 +5111,7 @@ function storyboardRows(root, decl) {
             dur: durRaw ? Number(durRaw) || 0 : 0,
             shot: iShot >= 0 ? String(c[iShot] || '').trim() : '',
             move: iMove >= 0 ? String(c[iMove] || '').trim() : '',
+            look: iLook >= 0 ? String(c[iLook] || '').trim() : '',
             pic: iPic >= 0 ? String(c[iPic] || '').trim() : '',
             line: iLine >= 0 ? String(c[iLine] || '').trim() : '',
             note: iNote >= 0 ? String(c[iNote] || '').trim() : '',
@@ -4639,6 +5188,30 @@ function validateUnits(root, decl, units, model) {
    *   任何**短于模型下限（4 秒）**的镜，必须和相邻镜并成一个单元。
    *   单镜生成 = 拿 4 秒换 1 秒，纯亏；并成一个单元后还可以按"多镜头一次生成"来写。
    */
+  /*
+   * 一镜一运镜（规范硬限）：运镜格写了两三种，模型会想一次做全，画面就散了。
+   * 只提醒不拦 —— 那是写法问题，不该挡住用户出片。
+   */
+  /*
+   * 画风：模型没有记忆，提示词里不带它就自己编一套。整组都没写只提醒（那是写法问题）。
+   */
+  const noLook = rows.filter((r) => !String(r.look || '').trim()).length;
+  if (rows.length && noLook === rows.length) {
+    warnings.push('整张表都没写「画风」—— 生成时会由模型自己编一套，建议至少按场戏补上');
+  } else if (noLook) {
+    /* 留空不等于继承（用户 2026-11-04 定）：空行在这一组里就是没画风 */
+    warnings.push('有 ' + noLook + ' 行「画风」是空的（留空不等于继承，程序不会替你补）—— 这些镜头生成时模型会自己编');
+  }
+
+  const MOVE_WORDS = /(推|拉|摇|移|跟|升|降|环绕|甩|俯冲|手持)/g;
+  for (const r of rows) {
+    const cell = String(r.move || '');
+    const kinds = [...new Set(cell.match(MOVE_WORDS) || [])];
+    if (kinds.length > 1) {
+      warnings.push('镜' + r.no + ' 的运镜写了 ' + kinds.join('、') + '（单镜只许一种；要换运镜就拆成下一个镜头）');
+    }
+  }
+
   for (const u of norm) {
     if ((u.covers || []).length !== 1) continue;
     const one = String(u.covers[0]);
@@ -4707,6 +5280,8 @@ function attachRowGen(root, stages) {
             covers: (u.covers || []).map(String),
             durationSec: Number(u.durationSec) || 0,
             why: String(u.why || ''),
+            /* 参考素材：绑了图的排在前面，没绑的排后面（画布上先显示已就绪的） */
+            refs: refsForUnit(root, u, rows).sort((a, b) => (b.images.length ? 1 : 0) - (a.images.length ? 1 : 0)),
             ...unitStateOf(root, u, jobs, assets),
           }));
         for (const no of Object.keys(gen)) gen[no].unit = byNo.get(String(no)) || '';
@@ -7424,14 +7999,26 @@ function rejectNonGet(req, res) {
  * @returns 请求体文本
  */
 function readBody(req, max = MAX_BODY) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let size = 0;
+    let over = false;
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
       if (size <= max) chunks.push(c);
+      else over = true;
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => {
+      /*
+       * 以前超限是**静默丢掉后面的块** ⇒ 调用方拿到半截 JSON ⇒ 报「Unterminated string」。
+       * 现在明确报错，让调用方回 400 并说清多少 MB。
+       */
+      if (over) {
+        reject(new Error('请求体太大（' + (size / 1048576).toFixed(1) + 'MB，上限 ' + (max / 1048576).toFixed(1) + 'MB）'));
+        return;
+      }
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
     req.on('error', () => resolve(''));
   });
 }
@@ -8589,6 +9176,35 @@ export function apply(ctx, config) {
     trace('注册 /filmflow/edit 抛出: ' + String((e && e.stack) || e));
   }
 
+  /* ---- GET /filmflow/videoopts ---- 生成参数的选项（清晰度/模型/比例），界面只让选不让填 */
+  try {
+    ctx.effect(
+      () =>
+        webServer.register({
+          kind: 'exact',
+          path: '/filmflow/videoopts',
+          handler: async (req, res) => {
+            const models = Object.keys(VIDEO_MODELS || {}).map((id) => ({
+              id,
+              label: String((VIDEO_MODELS[id] || {}).label || id),
+              resolutions: ((VIDEO_MODELS[id] || {}).resolutions || []).slice(),
+              ratios: ((VIDEO_MODELS[id] || {}).ratios || []).slice(),
+              durations: ((VIDEO_MODELS[id] || {}).durations || []).slice(),
+            }));
+            sendJson(res, 200, {
+              ok: true,
+              default: { model: DEFAULT_VIDEO_MODEL, resolution: '720p', ratio: '16:9' },
+              models,
+            });
+          },
+        }),
+      'filmflow: /filmflow/videoopts',
+    );
+    trace('已注册路由 /filmflow/videoopts');
+  } catch (e) {
+    trace('注册 /filmflow/videoopts 抛出: ' + String((e && e.stack) || e));
+  }
+
   /* ---- /filmflow/units ---- 生成单元（镜头组）：读 / 交（校验后落盘） */
   try {
     ctx.effect(
@@ -8616,6 +9232,35 @@ export function apply(ctx, config) {
                   return sendJson(res, 400, { ok: false, errors: v.errors, warnings: v.warnings });
                 }
                 writeUnits(root, { model, units: v.units });
+                /*
+                 * ★ 提示词**在分组那一刻就落库**（2026-11-04）。
+                 *   用户问："现场拼接怎么让人提前浏览和手动编辑？"
+                 *   ⇒ 拼出来就存进 generation.json 的 unitRows[id].prompt（source=program），
+                 *     画布上打开参数卡就能看到/改；点 ▶ 时只是消费这份，不再临时拼。
+                 *   已有 agent 写的 / 人手改过的，不覆盖。
+                 */
+                try {
+                  const gen0 = readGen(root);
+                  const byNo0 = new Map(v.rows.map((r) => [String(r.no), r]));
+                  let made = 0;
+                  for (const u of v.units) {
+                    const cur = (gen0.unitRows || {})[u.id] || {};
+                    const kept = String(cur.prompt || '').trim();
+                    if (kept && String(cur.source || '') !== 'program') continue;
+                    const rowsIn = (u.covers || []).map((no) => byNo0.get(String(no))).filter(Boolean);
+                    const text = composeUnitPrompt(rowsIn, refsForUnit(root, u, rows));
+                    if (!text) continue;
+                    gen0.unitRows = gen0.unitRows || {};
+                    gen0.unitRows[u.id] = { ...cur, id: u.id, covers: (u.covers || []).map(String), prompt: text, durationSec: Number(u.durationSec) || 0, source: 'program', updatedAt: new Date().toISOString() };
+                    made += 1;
+                  }
+                  if (made) {
+                    writeGen(root, gen0);
+                    trace('[生成单元] 顺手写好 ' + made + ' 份提示词草稿（可在参数卡里改）');
+                  }
+                } catch (e) {
+                  trace('[生成单元] 物化提示词失败：' + String((e && e.message) || e));
+                }
                 trace('[生成单元] ' + root + ' 收了 ' + v.units.length + ' 个单元（' + v.rows.length + ' 行）');
                 return sendJson(res, 200, { ok: true, units: v.units, warnings: v.warnings });
               }
@@ -8650,6 +9295,198 @@ export function apply(ctx, config) {
     trace('已注册路由 /filmflow/units');
   } catch (e) {
     trace('注册 /filmflow/units 抛出: ' + String((e && e.stack) || e));
+  }
+
+  /* ---- GET/POST /filmflow/refs ---- 参考素材：元素库 + 绑定（设计见 设计-参考素材.md） */
+  try {
+    ctx.effect(
+      () =>
+        webServer.register({
+          kind: 'exact',
+          path: '/filmflow/refs',
+          handler: async (req, res) => {
+            try {
+              const u0 = new URL(req.url || '/', 'http://x');
+              let body = {};
+              if (req.method === 'POST') body = JSON.parse(await readBody(req, MAX_UPLOAD_BODY));
+              const want = String(req.method === 'POST' ? (body.root || '') : (u0.searchParams.get('root') || ''))
+                .replace(/[\\/]+$/, '').toLowerCase();
+              const root = discoverProjects(roots, explicit).find((r) => r.toLowerCase() === want);
+              if (!root) return sendJson(res, 400, { ok: false, error: 'root 不在已发现的项目里' });
+              if (req.method !== 'POST') return sendJson(res, 200, refsPayload(root));
+              if (!requireToken(req, res)) return;
+              const action = String(body.action || '');
+              const refs = readRefs(root);
+              refs.elements = Array.isArray(refs.elements) ? refs.elements : [];
+              refs.binding = refs.binding && typeof refs.binding === 'object' ? refs.binding : {};
+              const notes = [];
+              const findEl = (id) => refs.elements.find((x) => String(x.id) === String(id));
+
+              if (action === 'save' || action === 'add') {
+                const incoming = Array.isArray(body.elements) ? body.elements : (body.name ? [body] : []);
+                notes.push(...saveRefElements(root, incoming));
+                const fresh = readRefs(root);
+                refs.elements = fresh.elements;
+                refs.binding = fresh.binding;              } else if (action === 'bind') {
+                const el = findEl(body.id);
+                if (!el) return sendJson(res, 404, { ok: false, error: '没有这个元素：' + body.id });
+                const imgs = (Array.isArray(body.images) ? body.images : [body.image]).map(String).filter(Boolean);
+                for (const rel of imgs) {
+                  const abs = join(root, ...rel.replace(/\\/g, '/').split('/'));
+                  if (!existsSync(abs)) return sendJson(res, 400, { ok: false, error: '图不存在：' + rel });
+                }
+                refs.binding[String(el.id)] = { images: imgs, at: new Date().toISOString() };
+                el.state = imgs.length ? 'bound' : 'pending';
+              } else if (action === 'unbind') {
+                const el = findEl(body.id);
+                if (!el) return sendJson(res, 404, { ok: false, error: '没有这个元素' });
+                delete refs.binding[String(el.id)];
+                el.state = 'pending';
+              } else if (action === 'skip') {
+                const el = findEl(body.id);
+                if (!el) return sendJson(res, 404, { ok: false, error: '没有这个元素' });
+                const on = body.skip !== false;
+                const hasImg = ((refs.binding[String(el.id)] || {}).images || []).length > 0;
+                el.state = on ? 'skip' : (hasImg ? 'bound' : 'pending');
+              } else if (action === 'rename') {
+                const el = findEl(body.id);
+                if (!el) return sendJson(res, 404, { ok: false, error: '没有这个元素' });
+                const name = String(body.name || '').trim();
+                if (!name) return sendJson(res, 400, { ok: false, error: '名字不能为空' });
+                el.name = name;
+                if (body.base) el.base = String(body.base);
+              } else if (action === 'remove') {
+                refs.elements = refs.elements.filter((x) => String(x.id) !== String(body.id));
+                delete refs.binding[String(body.id)];
+              } else if (action === 'merge') {
+                const ids = (Array.isArray(body.ids) ? body.ids : []).map(String);
+                const els = refs.elements.filter((x) => ids.includes(String(x.id)));
+                if (els.length < 2) return sendJson(res, 400, { ok: false, error: '合并至少要两个元素' });
+                const keep = els[0];
+                const imgs = [];
+                const shots = [];
+                const aliases = [];
+                for (const x of els) {
+                  imgs.push(...(((refs.binding[String(x.id)] || {}).images) || []));
+                  shots.push(...(x.shots || []));
+                  aliases.push(String(x.name), ...(x.aliases || []));
+                  delete refs.binding[String(x.id)];
+                }
+                refs.elements = refs.elements.filter((x) => String(x.id) === String(keep.id) || !ids.includes(String(x.id)));
+                refs.binding[String(keep.id)] = { images: [...new Set(imgs)], at: new Date().toISOString() };
+                keep.shots = [...new Set(shots)];
+                keep.aliases = [...new Set(aliases.filter((x) => refNameKey(x) !== refNameKey(keep.name)))];
+                if (String(body.name || '').trim()) keep.name = String(body.name).trim();
+                keep.state = (((refs.binding[String(keep.id)] || {}).images) || []).length ? 'bound' : 'pending';
+              } else if (action === 'split') {
+                /* 把一个元素按镜号切成两个（唐老板 → 唐老板 + 唐老板·年轻版 这类） */
+                const el = findEl(body.id);
+                if (!el) return sendJson(res, 404, { ok: false, error: '没有这个元素' });
+                const move = (Array.isArray(body.shots) ? body.shots : []).map(String).filter(Boolean);
+                if (!move.length) return sendJson(res, 400, { ok: false, error: '要给出要切出去的镜号 shots' });
+                const name = String(body.name || '').trim();
+                if (!name) return sendJson(res, 400, { ok: false, error: '新元素要有个名字' });
+                const keepShots = (el.shots || []).map(String).filter((no) => !move.includes(no));
+                el.shots = keepShots;
+                refs.elements.push({
+                  id: nextRefId(refs), name, base: String(body.base || el.base || el.name),
+                  kind: REF_KINDS.includes(String(body.kind || el.kind)) ? String(body.kind || el.kind) : 'person',
+                  aliases: Array.isArray(body.aliases) ? body.aliases.map(String) : [],
+                  shots: move, state: 'pending',
+                });
+                notes.push('切出「' + name + '」（镜 ' + move.join(',') + '）');
+              } else if (action === 'fromAsset') {
+                /* 从本片素材库里挑一张已生成的图（画布上的成片/图片），直接绑到元素 */
+                const el = findEl(body.id);
+                if (!el) return sendJson(res, 404, { ok: false, error: '没有这个元素' });
+                const src = String(body.src || '').replace(/\\/g, '/');
+                if (!src.startsWith('.film/assets/') || src.includes('..')) {
+                  return sendJson(res, 400, { ok: false, error: '只能从本片素材库选（.film/assets/…）' });
+                }
+                const absA = join(root, ...src.split('/'));
+                if (!existsSync(absA)) return sendJson(res, 404, { ok: false, error: '素材文件不在了：' + src });
+                const curA = ((refs.binding[String(el.id)] || {}).images || []).slice();
+                const nextA = body.replace ? [src] : [...new Set([...curA, src])];
+                refs.binding[String(el.id)] = { images: nextA, at: new Date().toISOString() };
+                el.state = 'bound';
+                notes.push('从素材库绑了 1 张（' + nextA.length + ' 张）');
+              } else if (action === 'upload') {
+                /* body: {name, dataUrl} → 落盘到 素材/，返回相对路径；绑定由后续 bind 完成 */
+                const m = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i.exec(String(body.dataUrl || ''));
+                if (!m) return sendJson(res, 400, { ok: false, error: '只收 base64 图片' });
+                const extMap = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' };
+                const ext = extMap[m[1].toLowerCase()] || '.png';
+                const buf = Buffer.from(m[2].replace(/\s+/g, ''), 'base64');
+                if (buf.length > 12 * 1024 * 1024) return sendJson(res, 400, { ok: false, error: '图太大（上限 12MB）' });
+                const baseName = safeMaterialName(String(body.name || 'ref')).replace(/\.[^.]+$/,'');
+                let rel = MATERIAL_DIR + '/' + baseName + ext;
+                let k = 2;
+                while (existsSync(join(root, ...rel.split('/')))) { rel = MATERIAL_DIR + '/' + baseName + '_' + k + ext; k += 1; }
+                const absOut = join(root, ...rel.split('/'));
+                mkdirSync(dirname(absOut), { recursive: true });
+                writeFileSync(absOut, buf);
+                return sendJson(res, 200, { ok: true, path: rel, bytes: buf.length });
+              } else if (action === 'autobind') {
+                const n = autoBindRefs(root);
+                notes.push('自动匹配 ' + n + ' 个元素');
+              } else {
+                return sendJson(res, 400, { ok: false, error: '不认识的 action：' + action });
+              }
+
+              for (const el of refs.elements) {
+                const imgs = ((refs.binding[String(el.id)] || {}).images) || [];
+                if (String(el.state || '') !== 'skip') el.state = imgs.length ? 'bound' : 'pending';
+              }
+              writeRefs(root, refs);
+              trace('[参考素材] ' + root + ' ' + action + (notes.length ? '（' + notes.join('；') + '）' : ''));
+              return sendJson(res, 200, { ...refsPayload(root), notes });
+            } catch (e) {
+              sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+            }
+          },
+        }),
+      'filmflow: /filmflow/refs',
+    );
+    trace('已注册路由 /filmflow/refs');
+  } catch (e) {
+    trace('注册 /filmflow/refs 抛出: ' + String((e && e.stack) || e));
+  }
+
+  /* ---- GET /filmflow/refs/file ---- 参考图缩略图（只伺服项目内的图片） */
+  try {
+    ctx.effect(
+      () =>
+        webServer.register({
+          kind: 'exact',
+          path: '/filmflow/refs/file',
+          handler: async (req, res) => {
+            try {
+              const u0 = new URL(req.url || '/', 'http://x');
+              const want = String(u0.searchParams.get('root') || '').replace(/[\\/]+$/, '').toLowerCase();
+              const root = discoverProjects(roots, explicit).find((r) => r.toLowerCase() === want);
+              if (!root) return sendJson(res, 400, { ok: false, error: 'root 不在已发现的项目里' });
+              const rel = String(u0.searchParams.get('p') || '').replace(/\\/g, '/');
+              if (!rel || rel.includes('..')) return sendJson(res, 400, { ok: false, error: '路径不合法' });
+              const abs = join(root, ...rel.split('/'));
+              if (!existsSync(abs)) return sendJson(res, 404, { ok: false, error: '没有这个文件' });
+              const type = /\.(png)$/i.test(abs) ? 'image/png'
+                : /\.(jpe?g)$/i.test(abs) ? 'image/jpeg'
+                  : /\.(webp)$/i.test(abs) ? 'image/webp'
+                    : /\.(gif)$/i.test(abs) ? 'image/gif' : '';
+              if (!type) return sendJson(res, 400, { ok: false, error: '只伺服图片' });
+              const buf = readFileSync(abs);
+              res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'private, max-age=86400' });
+              res.end(buf);
+            } catch (e) {
+              sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+            }
+          },
+        }),
+      'filmflow: /filmflow/refs/file',
+    );
+    trace('已注册路由 /filmflow/refs/file');
+  } catch (e) {
+    trace('注册 /filmflow/refs/file 抛出: ' + String((e && e.stack) || e));
   }
 
   /* ---- POST /filmflow/apply ---- 下游直写（上游改动引起过期时，agent 可直接写） */
@@ -8843,6 +9680,36 @@ export function apply(ctx, config) {
                  *   成片和用量都记在单元名下，组内各行只是"分到哪一段"。
                  */
                 const unitId = String(body.id || '').trim();
+                /*
+                 * 存生成参数（清晰度/模型/比例）。界面只给下拉选择，不让人手填；
+                 * 参数跟着"生成单元"走 —— 一次任务只有一套参数。
+                 */
+                if (action === 'setParams') {
+                  const gen = readGen(root);
+                  const P = body.params && typeof body.params === 'object' ? body.params : {};
+                  const clean = {};
+                  for (const k of ['model', 'resolution', 'ratio', 'durationSec']) {
+                    if (P[k] !== undefined && P[k] !== null && String(P[k]) !== '') clean[k] = P[k];
+                  }
+                  if (unitId) {
+                    const cur0 = (gen.unitRows || {})[unitId] || { attempts: [] };
+                    cur0.params = { ...(cur0.params || {}), ...clean };
+                    /* 参数是谁定的：用户在画布上改 ⇒ human（agent 的写入会标 agent） */
+                    cur0.paramsSource = 'human';
+                    cur0.updatedAt = new Date().toISOString();
+                    gen.unitRows = { ...(gen.unitRows || {}), [unitId]: cur0 };
+                    writeGen(root, gen);
+                    return sendJson(res, 200, { ok: true, id: unitId, params: cur0.params });
+                  }
+                  if (!no) return sendJson(res, 400, { ok: false, error: '要给镜号（no）或单元号（id）' });
+                  const cur1 = gen.rows[no] || { attempts: [] };
+                  cur1.params = { ...(cur1.params || {}), ...clean };
+                  cur1.paramsSource = 'human';
+                  cur1.updatedAt = new Date().toISOString();
+                  gen.rows[no] = cur1;
+                  writeGen(root, gen);
+                  return sendJson(res, 200, { ok: true, no, params: cur1.params });
+                }
                 if (unitId && ['genUnit', 'cancelUnit', 'setUnitPrompt'].includes(action)) {
                   const U = readUnits(root);
                   const u = U.units.find((x) => String(x.id) === unitId);
@@ -8855,6 +9722,7 @@ export function apply(ctx, config) {
                     cur.id = unitId;
                     cur.covers = (u.covers || []).map(String);
                     cur.prompt = String(body.prompt == null ? '' : body.prompt);
+                    cur.source = 'human';
                     cur.updatedAt = new Date().toISOString();
                     gen.unitRows = { ...(gen.unitRows || {}), [unitId]: cur };
                     writeGen(root, gen);
@@ -8862,16 +9730,29 @@ export function apply(ctx, config) {
                   }
                   const decl0 = readDecl(join(root, DECL)).decl;
                   const wantNos = new Set((u.covers || []).map(String));
-                  const rowsIn = storyboardRows(root, decl0).filter((r) => wantNos.has(String(r.no)));
-                  const prompt = String(body.prompt != null && String(body.prompt).trim()
+                  const allRows0 = storyboardRows(root, decl0);
+                  const rowsIn = allRows0.filter((r) => wantNos.has(String(r.no)));
+                  /* 参考素材：每次生成前按当前绑定重算编号（换图/新绑都不需要改提示词） */
+                  const refList = refsForUnit(root, u, allRows0);
+                  const refImgs = refsBlock(rowsIn, refList).images;
+                  const prompt = withFreshRefs(String(body.prompt != null && String(body.prompt).trim()
                     ? body.prompt
-                    : (cur.prompt || composeUnitPrompt(rowsIn))).trim();
+                    : (cur.prompt || composeUnitPrompt(rowsIn, refList))).trim(), rowsIn, refList);
                   if (!prompt) return sendJson(res, 400, { ok: false, error: '这个单元没有提示词（组内各镜的画面/台词都是空？）' });
                   const model = String(body.model || cur.model || U.model || DEFAULT_VIDEO_MODEL);
+                  const stored = cur.params && typeof cur.params === 'object' ? cur.params : {};
                   const r = MEDIA.startJobFor(root, {
                     key,
                     title: '组' + unitId + '（镜' + (u.covers || []).join('/') + '）',
-                    media: { type: 'video', model, prompt, durationSec: Number(u.durationSec) || 0, ...(body.params || {}) },
+                    media: {
+                      ...stored,
+                      ...(body.params || {}),
+                      type: 'video',
+                      model,
+                      prompt,
+                      imageUrls: refImgs,
+                      durationSec: Number(u.durationSec) || 0,
+                    },
                   });
                   cur.id = unitId;
                   cur.covers = (u.covers || []).map(String);
@@ -8894,6 +9775,7 @@ export function apply(ctx, config) {
                   const gen = readGen(root);
                   const cur = gen.rows[no] || { attempts: [] };
                   cur.prompt = String(body.prompt == null ? '' : body.prompt);
+                  cur.source = 'human';
                   if (body.model) cur.model = String(body.model);
                   cur.updatedAt = new Date().toISOString();
                   gen.rows[no] = cur;
@@ -8911,10 +9793,11 @@ export function apply(ctx, config) {
                   }
                   const type = String(body.type || cur.type || 'video');
                   const model = String(body.model || cur.model || '');
+                  const storedRow = cur.params && typeof cur.params === 'object' ? cur.params : {};
                   const r = MEDIA.startJobFor(root, {
                     key: genKeyOf(no),
                     title: '镜' + no,
-                    media: { ...(body.params || {}), type, model, prompt },
+                    media: { ...storedRow, ...(body.params || {}), type, model, prompt },
                   });
                   cur.prompt = prompt;
                   cur.model = model;
@@ -10648,7 +11531,11 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
       reg({
         name: 'filmflow_propose',
         description: [
-          '提交一处修改建议。**这是唯一能改内容的途径** —— 你没有写文件的工具，不要试图直接写。',
+          '提交一处修改建议，等用户在图上的卡片里点「确认」才生效。',
+          '',
+          '**表格节点不要用我**（分镜脚本、人物表这类 `shape.kind = table` 的）：',
+          '这类改动是批量的，直接用 `filmflow_apply` 写进去（表头/镜号会自动校验，写前有备份）。',
+          '本工具留给**正文类节点**：剧本、认知层、提示词、以及要改结构（增删挪节点）的时候。',
           '',
           '**调它之前**：先用 board 看全貌、用 node 读那个节点的指令，并且已经想清楚"改哪几句、为什么"。',
           '**不该调**：还在判断中（先读 node）；或者核对后发现内容其实不用改（那就直接 filmflow_sync）。',
@@ -10893,14 +11780,20 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
       reg({
         name: 'filmflow_apply',
         description: [
-          '把内容**直接写进下游节点**（不需要提案、不需要用户点确认）。',
+          '把内容**直接写进节点**（不需要提案、不需要用户点确认）。',
           '',
-          '**什么时候用**：`board` 里某个节点标着 `⚠ 过期`，且原因是「上游改过了」——',
-          '也就是**上游改、下游跟着改**这个方向（用户已授权）。改完它自动对齐，不用再 sync。',
+          '**两类节点，两套规矩**：',
           '',
-          '**什么时候不能用**：节点不是"上游改动导倒的过期"（比如它根本没依赖，或者过期是别的来源）。',
-          '这种情况下宿主会拒绝，并让你去 `filmflow_propose` 提案 —— 那是**下游改、上游跟着改**的方向，',
-          '必须先问用户。别试图绕过。',
+          '① **表格节点**（分镜脚本这类，`shape.kind = table`）：**随时可写，不用等过期、不用提案**。',
+          '   用户 2026-11-04：「分镜脚本添加很多东西是批量的，每一处都要用户手动确认的话根本点不完」。',
+          '   所以整份表格一次给全，别一行一次调用。落盘前宿主会校验：',
+          '   表头必须与节点声明的列**一字不差、顺序不变**；至少一条数据行；镜号每行唯一。',
+          '   不合格一个字节都不写，报错里会给出「应该长什么样」。',
+          '   空表格不是清空手段 —— 要清空让用户在画布上删行。',
+          '',
+          '② **正文类节点**（剧本 / 认知层 / 提示词……）：**只在它标着 `⚠ 过期` 且原因是「上游改过」时**才能写，',
+          '   也就是「上游改、下游跟着改」这个方向（用户已授权）。改完自动对齐，不用再 sync。',
+          '   不是这种情况 ⇒ 宿主拒绝，让你去 `filmflow_propose` 提案（那是「下游改、上游跟着改」的方向，必须先问用户）。别试图绕过。',
           '',
           '**写法**：`text` 给**完整正文**（不是 diff），格式照该节点 `filmflow_node` 里的「格式」那段。',
         ].join('\n'),
@@ -10919,12 +11812,17 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
           if (!ps.length) throw new Error('没找到项目');
           const p = ps[0];
           const r = applyDownstream(p.root, args || {});
-          return {
-            report:
-              '已直接写入「' + r.node + '」' + '　→ ' + r.src + '\n'
-              + '依据：' + String(args.why || '（没写）') + '\n'
-              + '这是"上游改→下游"的授权方向，不需要提案；记得在回话里说一句改了哪几处。',
-          };
+          const L = [];
+          L.push('已直接写入「' + r.node + '」　→ ' + r.src);
+          if (r.table) {
+            L.push('表格：' + (r.table.before || 0) + ' 行 → ' + r.table.rows + ' 行（表头、镜号已校验；改动前已备份）');
+            if (r.table.note) L.push('注意：' + r.table.note);
+          }
+          L.push('依据：' + String(args.why || '（没写）'));
+          L.push(r.table
+            ? '这是批量写表格，不需要提案；回话里一句话说清改了哪几处就行。'
+            : '这是"上游改→下游"的授权方向，不需要提案；记得在回话里说一句改了哪几处。');
+          return { report: L.join('\n') };
         },
       });
       /*
@@ -10952,8 +11850,15 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
           '**一条硬规矩：短于 4 秒的镜头必须和相邻镜并成一个单元**，不许单独生成（单镜生成 = 拿 4 秒换 1 秒，纯亏）。',
           '4 秒及以上的镜：同场景 + 同机位 + 连续动作时也鼓励并（更省、接得更顺）；换场/换机位/换说话人时可以不并。',
           '',
+          '**画风列**：每份提示词都要把这一组的画风带上（模型没有记忆）；同一单元口径一致就写一行，逐镜不同才按镜头列。',
+
+          '**参考素材（elements）**：图片只能由用户在画布上绑，你**看不到也判断不了**哪张图是谁。你要做的是把“这一镜需要哪些元素的参考图”列出来：',
+          '`elements:[{name:"唐老板",kind:"person",aliases:["老唐"],shots:["1","2"]},{name:"A室",kind:"scene",aliases:["审讯室"],shots:["1","2"]}]`。',
+          '拆分判据：**要换一张参考图才算新元素**（`唐老板·年轻版`、`换上病号服`）；只是剧情/状态变化（坐下、喝茶、笑）不要拆。',
+          '命中范围写 `shots`（镜号），别写单元号 —— 重划分组时镜号是稳的。',
+
           '**一次生成是一个连续镜头，中间不会有剪辑点**；并组之后按「多镜头一次生成」来写：',
-          '`镜头1：机位/运镜、景别；画面内容；声音/台词：…` `镜头2：…` ……（顺序就是剪辑顺序，不写秒数）。',
+          '`镜头1：中景，警察坐在桌后翻资料，抬头看对面（缓推）；警察说：{唐老板是吧？}` `镜头2：…` ……（顺序就是剪辑顺序，不写秒数）。',
           '',
           '**时长**：单元时长 = max(4, ceil(各镜时长合计 + 0.3~0.5))，整秒；2.5 是 4–30s，2.0 是 4–15s。',
           '组内合计超过 10 秒只提醒（越长越漂）；超模型上限必须拆，拆点放在动作完成或视线转移之后。',
@@ -10963,11 +11868,27 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
           '**不许**：改分镜内容；把一句台词切在两个单元之间（口型和气口会断）；静默丢镜。',
           '',
           '**什么时候重划**：分镜增删或改了时长/场景之后，只重算受影响的相邻组，不要整体重排；用户手动调过的组不要动。',
+          '',
+          '**顺手写提示词（强建议）**：分组之后，每个单元都要有一段「点 ▶ 就发出去」的最终提示词，放进 prompts。',
+          '写法照 sd25-pe 的两段结构（官方 skill 的记号表）：',
+          '`【事件脚本】` 每条 `镜头N：景别，画面内容（运镜）；角色说：{台词}`；`【保持一致】` 写同一场景 / 人物身份服装站位 / 说话人不互换 / 备注里的硬要求。',
+          '台词用 `{}`、音效 `<>`、音乐 `()`、字幕 `【】`。运镜**不要单独前置成一个短语**（「推；他抬头」模型不知道往哪推）；「固定」不写；一镜只写一种运镜。',
+          '**不要自动加**画质包 / 稳定包 / 水印 / 不要字幕这类通用负向约束 —— 用户没要求就不写。',
+          '末尾按需挂约束（不要BGM / 保留雨声 / 不要字幕 / 人物面部稳定）；不写秒数、不写画幅（那是接口参数）。',
+
+          /** 让 agent 也能改生成参数（模型/清晰度/比例） */
+          '',
+          '**你也能改生成参数**：params:{u01:{model,resolution,ratio}}（键可以是单元号，也可以是镜号）。',
+          '模型：doubao-seedance-2-5-260628 / -2-0-260128 / -2-0-fast-260128 / -2-0-mini-260615；清晰度 480p/720p/1080p（2.0 还支持 4k）；比例 21:9/16:9/4:3/1:1/3:4/9:16。',
+          '改就给理由（例：这一组是竖屏手机画面，改 9:16）；拿不准别动。',
         ].join('\n'),
         parameters: params(
           {
             project: pStr('已绑死到当前项目，传了也会被忽略'),
             units: pArr('分组结果：[{id,covers:["12","13"],durationSec:6,why:"同机位连续动作；镜12抬手，镜13放下"}]；不传则只读当前分组与规则'),
+            prompts: pObj('可选：{单元号: 提示词}。分组的同时把每个单元的最终提示词写下来（之后改会覆盖程序草稿；人改过的不动）'),
+            params: pObj('可选：{单元号或镜号: {model, resolution, ratio}}。改这一组的生成参数，值只能从枚举里选'),
+            elements: pArr('可选：参考素材的元素候选 [{name, kind, base?, aliases?, shots:[镜号]}]。只提“这里需要一个参考图”，不要提图片文件'),
             model: pStr('可选：按哪个视频模型算时长区间（默认取上次存的那个，否则 Seedance 2.5）'),
           },
           [],
@@ -10982,6 +11903,74 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
           const model = String((args && args.model) || cur.model || DEFAULT_VIDEO_MODEL);
           const span = VIDEO_SPAN[model] || VIDEO_SPAN[DEFAULT_VIDEO_MODEL];
 
+          /*
+           * 生成参数（模型/清晰度/比例）：agent 也能改，而且**可以单独改**（不重交分组）。
+           * 值只认枚举 —— 传错就报错说清，别静默写进去让人后面排错。
+           * @returns {string[]} 逐条说明（改了什么 / 为什么没改）
+           */
+          const applyParams = (unitsList, wants) => {
+            const notes = [];
+            if (!wants || typeof wants !== 'object' || Array.isArray(wants)) return notes;
+            if (!Array.isArray(unitsList) || !unitsList.length) {
+              notes.push('当前还没有分组 —— 先交 units 把单元划出来，再改参数');
+              return notes;
+            }
+            try {
+              const gen1 = readGen(p.root);
+              gen1.unitRows = gen1.unitRows || {};
+              const byId = new Map(unitsList.map((u) => [String(u.id), u]));
+              const byNo = new Map();
+              for (const u of unitsList) for (const no of u.covers || []) byNo.set(String(no), u);
+              const modelLabel = (id) => String((VIDEO_MODELS[id] || {}).label || id);
+              const ALL_MODELS = Object.keys(VIDEO_MODELS || {});
+              /* 键容错：u01 / 组u01 / 30 / 镜30 都认 */
+              const bare = (s) => String(s || '').trim().replace(/^[镜组]\s*/, '');
+              for (const keyRaw of Object.keys(wants)) {
+                const key = String(keyRaw).trim();
+                const u = byId.get(key) || byNo.get(key) || byNo.get(bare(key)) || byId.get(bare(key));
+                if (!u) { notes.push('没有这个单元/镜号：' + key); continue; }
+                const want = wants[keyRaw] || {};
+                const clean = {};
+                const model = String(want.model || '').trim();
+                if (model) {
+                  const hit = ALL_MODELS.find((id) => id === model)
+                    || ALL_MODELS.find((id) => modelLabel(id).toLowerCase() === model.toLowerCase())
+                    || ALL_MODELS.find((id) => id.includes(model));
+                  if (!hit) { notes.push(key + '：模型不认识（可选 ' + ALL_MODELS.map(modelLabel).join(' / ') + '）'); continue; }
+                  clean.model = hit;
+                }
+                const cur = (gen1.unitRows[u.id] || {}).params || {};
+                const m = VIDEO_MODELS[clean.model || cur.model || DEFAULT_VIDEO_MODEL] || {};
+                const res = String(want.resolution || '').trim();
+                if (res) {
+                  if (!(m.resolutions || []).includes(res)) { notes.push(key + '：清晰度 ' + res + ' 不在 ' + modelLabel(clean.model || cur.model || DEFAULT_VIDEO_MODEL) + ' 的选项里（' + (m.resolutions || []).join('/') + '）'); continue; }
+                  clean.resolution = res;
+                }
+                const ratio = String(want.ratio || '').trim();
+                if (ratio) {
+                  if (!(m.ratios || []).includes(ratio)) { notes.push(key + '：比例 ' + ratio + ' 不在选项里（' + (m.ratios || []).join('/') + '）'); continue; }
+                  clean.ratio = ratio;
+                }
+                if (!Object.keys(clean).length) { notes.push(key + '：没给 model/resolution/ratio 里的任何一个'); continue; }
+                const cur0 = gen1.unitRows[u.id] || {};
+                const merged = { ...(cur0.params || {}), ...clean };
+                /* 换模型之后，原来选过的清晰度可能在新模型上没有 → 回到 720p（不然生成时接口会拒） */
+                const mm = VIDEO_MODELS[merged.model || DEFAULT_VIDEO_MODEL] || {};
+                if (merged.resolution && !(mm.resolutions || []).includes(merged.resolution)) {
+                  notes.push(u.id + '：' + modelLabel(merged.model || DEFAULT_VIDEO_MODEL) + ' 没有 ' + merged.resolution + '，清晰度回到 720p');
+                  merged.resolution = '720p';
+                }
+                gen1.unitRows[u.id] = { ...cur0, id: u.id, covers: (u.covers || []).map(String), params: merged, paramsSource: 'agent', updatedAt: new Date().toISOString() };
+                notes.push(u.id + '：改 ' + Object.entries(clean).map(([k2, v2]) => k2 + '=' + v2).join(' ') + ' ⇒ ' + (merged.resolution || '默认') + '·' + modelLabel(merged.model || DEFAULT_VIDEO_MODEL) + '·' + (merged.ratio || '默认'));
+              }
+              writeGen(p.root, gen1);
+              if (notes.length) trace('[生成单元] 参数：' + notes.join('；').slice(0, 300));
+            } catch (e) {
+              trace('[生成单元] 写参数失败：' + String((e && e.message) || e));
+              notes.push('写参数时出错：' + String((e && e.message) || e));
+            }
+            return notes;
+          };
           if (!args || !Array.isArray(args.units) || !args.units.length) {
             const rows = storyboardRows(p.root, d0);
             const L = [];
@@ -10996,13 +11985,27 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
             L.push('');
             if (cur.units.length) {
               const v = validateUnits(p.root, d0, cur.units, model);
+              const genRead = readGen(p.root);
               L.push('当前分组 ' + cur.units.length + ' 个单元（' + (cur.at || '') + '）：' + (v.ok ? '仍然通过校验' : '已过期：' + v.errors.slice(0, 3).join('；')));
-              for (const u of cur.units) L.push('  · ' + u.id + ' ' + u.durationSec + 's ← 镜 ' + (u.covers || []).join(',') + '（' + String(u.why || '').slice(0, 40) + '）');
+              /* 每组后面挂上它的生成参数 —— 要改就得先看得见 */
+              for (const u of cur.units) {
+                const pr = (genRead.unitRows[u.id] || {}).params || {};
+                const pstr = (pr.resolution || '默认') + '·' + String((VIDEO_MODELS[pr.model] || {}).label || 'Seedance 2.5') + '·' + (pr.ratio || '默认');
+                L.push('  · ' + u.id + ' ' + u.durationSec + 's ← 镜 ' + (u.covers || []).join(',') + '｜' + pstr + '｜' + String(u.why || '').slice(0, 40));
+              }
+              L.push('  （竖列顺序是 清晰度·模型·比例；要改就传 params，别去改分镜。）');
             } else {
               L.push('当前还没有分组。');
             }
             L.push('');
             L.push('按工具说明里的硬边界与合并条件分组，然后**再调一次本工具并传 units**。');
+            /* 只改参数、不动分组也走得通 —— 改完把结果一起报出来 */
+            const notesA = applyParams(cur.units, args && args.params);
+            if (notesA.length) {
+              L.push('');
+              L.push('参数改动：');
+              for (const x of notesA) L.push('  · ' + x);
+            }
             return { report: L.join('\n') };
           }
 
@@ -11011,12 +12014,55 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
             throw new Error('分组没通过校验（一个字节都没写）：\n- ' + v.errors.join('\n- '));
           }
           writeUnits(p.root, { model, units: v.units });
-          trace('[生成单元] ' + p.root + ' agent 交了 ' + v.units.length + ' 个单元（' + v.rows.length + ' 行）');
+          /* 参考素材：agent 只提元素候选，不动图片（绑定永远由人做） */
+          let refNotes = [];
+          if (args && Array.isArray(args.elements) && args.elements.length) {
+            try {
+              refNotes = saveRefElements(p.root, args.elements);
+            } catch (e) {
+              refNotes = ['元素库没写进去：' + String((e && e.message) || e)];
+            }
+          }
+          /* 分组同时落提示词（source=agent）；人改过的（human）不动 */
+          let wrotePrompts = 0;
+          const promptNotes = [];
+          try {
+            const gives = args && args.prompts && typeof args.prompts === 'object' ? args.prompts : null;
+            if (gives) {
+              const gen0 = readGen(p.root);
+              gen0.unitRows = gen0.unitRows || {};
+              for (const u of v.units) {
+                const linted = lintUnitPrompt(gives[u.id]);
+                const txt = linted.text;
+                if (!txt) continue;
+                const cur0 = gen0.unitRows[u.id] || {};
+                if (String(cur0.source || '') === 'human') continue;
+                gen0.unitRows[u.id] = { ...cur0, id: u.id, covers: (u.covers || []).map(String), prompt: txt, source: 'agent', updatedAt: new Date().toISOString() };
+                wrotePrompts += 1;
+                if (linted.issues.length) promptNotes.push(u.id + '：' + linted.issues.join('；'));
+              }
+              if (wrotePrompts) writeGen(p.root, gen0);
+            }
+          } catch (e) {
+            trace('[生成单元] 写提示词失败：' + String((e && e.message) || e));
+          }
+          const paramNotes = applyParams(v.units, args && args.params);
+          trace('[生成单元] ' + p.root + ' agent 交了 ' + v.units.length + ' 个单元（' + v.rows.length + ' 行）' + (wrotePrompts ? '、' + wrotePrompts + ' 份提示词' : ''));
           const L = [];
           L.push('已写入 ' + v.units.length + ' 个生成单元，覆盖 ' + v.rows.length + ' 个镜头（模型 ' + model + '）。');
           for (const u of v.units) {
             const sum = (u.covers || []).reduce((a, no) => a + ((v.rows.find((r) => String(r.no) === String(no)) || {}).dur || 0), 0);
             L.push('  · ' + u.id + ' ' + u.durationSec + 's ← 镜 ' + u.covers.join(',') + '（合计 ' + sum + 's）');
+          }
+          if (refNotes.length) {
+            L.push('');
+            L.push('参考素材：' + refNotes.join('；'));
+            L.push('  （图片要用户在画布的「素材」列里绑；提示词里只写元素名，编号由程序替换）');
+          }
+          if (promptNotes.length) {
+            L.push('');
+            L.push('提示词体检（已按规范写入，下面几处建议再收一下）：');
+            for (const x of promptNotes) L.push('  · ' + x);
           }
           if (v.warnings.length) {
             L.push('');
@@ -11025,6 +12071,11 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
           }
           L.push('');
           L.push('分组只决定"哪几镜一起生成"，**不会**自己发任务；生成由你在画布上点。');
+          if (paramNotes.length) {
+            L.push('');
+            L.push('参数改动：');
+            for (const x of paramNotes) L.push('  · ' + x);
+          }
           return { report: L.join('\n') };
         },
       });
@@ -11566,8 +12617,8 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
           '`model` 可以给模型 id（`doubao-seedance-2-5-260628`）或名字（`Seedance 2.5` / `Seedream 5.0` / `音频`）。',
           '返回：该模型的硬指标、结构公式、可用句式、负向控制、常见坑。',
           '',
-          '`full: true` = 连**完整 skill 全文**一起给（Seedance 2.5 → docs/sd25-pe-SKILL.md，Seedance 2.0 → docs/sd2-pe-SKILL.md）。',
-          '要用在多宫格分镜、多个参考素材编号编排、编辑/首尾帧/延长、画面文字渲染这类**步骤化**写法时再要全文；',
+          '`full: true` = 连**完整 skill 全文**一起给：Seedance 2.5 → docs/sd25-pe-SKILL.md；Seedance 2.0 → docs/sd2-pe-SKILL.md；Seedream 4.0–5.0 → docs/seedream-pe-SKILL.md。',
+          '要用在多宫格分镜、参考素材编号编排、编辑/首尾帧/延长、画面文字渲染、图像编辑（增删改替）、多图输入输出这类**步骤化**写法时再要全文；',
           '日常一镜一条提示词用速查就够，不必为了简单镜头拉几万字。',
         ].join('\n'),
         parameters: params({
@@ -11609,7 +12660,7 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
            * 这些步骤化写法都在完整 skill 里 —— 要细节就 full=true 给全文，日常镜头仍用速查。
            */
           if (args && args.full) {
-            const FULL = { sd25: 'sd25-pe-SKILL.md', sd2: 'sd2-pe-SKILL.md' };
+            const FULL = { sd25: 'sd25-pe-SKILL.md', sd2: 'sd2-pe-SKILL.md', seedream: 'seedream-pe-SKILL.md' };
             const fn = FULL[family];
             if (fn) {
               const DOCDIR = join(dirname(fileURLToPath(import.meta.url)), 'docs');
@@ -11627,7 +12678,7 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
             }
           }
           const tail = (args && args.full)
-            ? '\n\n==== 说明 ====\n  这个模型没有官方完整 skill（图片只有 Seedream 官方写法指南），上面就是全部；画幅/时长/分辨率写进节点参数。'
+            ? '\n\n==== 说明 ====\n  这个模型没有完整 skill 全文（音频只有速查），上面就是全部；画幅/时长/分辨率写进节点参数。'
             :
               '\n\n==== 下一步 ====\n  按这份写法改提示词；画幅/时长/分辨率/声音开关写进节点参数，不要写进正文。'
                 + '\n  要步骤化细节（多宫格分镜／参考素材编排／编辑与延长／画面文字）就再调一次带 full: true。';
@@ -11678,6 +12729,14 @@ export {
   syncNodes,
   readDecl,
   isWritable,
+  composeUnitPrompt,
+  storyboardRows,
+  readRefs,
+  writeRefs,
+  refsForUnit,
+  refsPayload,
+  saveRefElements,
+  autoBindRefs,
   requireToken,
   sendJson,
   readBody,

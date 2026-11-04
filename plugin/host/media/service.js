@@ -123,6 +123,29 @@ export function createMediaService(opts) {
     return n;
   };
 
+/**
+ * 本地图片 → `data:image/...;base64,...`。
+ *
+ * 为什么不用本地 http 地址：Ark 在公网侧取图，127.0.0.1 它够不着。
+ * 官方限制：单图 ≤30MB、请求体 ≤64MB（大文件别用 base64）——所以这里自己先拦一道。
+ */
+const REF_MIME = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp', '.gif': 'image/gif',
+};
+function inlineImageUrl(root, rel) {
+  const clean = String(rel || '').replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!clean || clean.includes('..')) throw new Error('参考图路径不合法：' + rel);
+  const abs = join(root, ...clean.split('/'));
+  if (!existsSync(abs)) throw new Error('参考图不见了：' + clean + '（重新绑定一下）');
+  const st = statSync(abs);
+  if (st.size > 12 * 1024 * 1024) {
+    throw new Error('参考图太大（' + (st.size / 1048576).toFixed(1) + 'MB，上限 12MB）：' + clean + '，先压缩再绑');
+  }
+  const mime = REF_MIME[extname(abs).toLowerCase()] || 'image/png';
+  return 'data:' + mime + ';base64,' + readFileSync(abs).toString('base64');
+}
+
   /**
    * 执行一个任务（内部）：提交 → 轮询 → 下载 → 记资产。
    *
@@ -217,10 +240,15 @@ export function createMediaService(opts) {
 
       let urls = [];
       if (type === 'video') {
+        /* 参考图：本地文件 → base64 data URL（Ark 在公网侧取不到 127.0.0.1） */
+        const refImages = (Array.isArray(media.imageUrls) ? media.imageUrls : [])
+          .map((p) => inlineImageUrl(root, p));
+        if (refImages.length) trace('[媒体] 参考图 ' + refImages.length + ' 张随任务提交（' + node.title + '）');
         const sub = await ark.submitVideo({
           ak: arkKey,
           model: media.model,
           prompt,
+          imageUrls: refImages,
           durationSec: media.durationSec,
           ratio: media.ratio,
           resolution: media.resolution,
@@ -605,6 +633,7 @@ export function createMediaService(opts) {
   };
 
   return {
+    inlineImageUrl,
     IMAGE_MODELS,
     VIDEO_MODELS,
     attachLatest,

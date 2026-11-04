@@ -495,6 +495,30 @@ td.ff-tbl-span{vertical-align:middle}
 .ff-params-pop{position:absolute;right:0;top:calc(100% + 4px);z-index:80;display:flex;flex-direction:column;gap:8px;padding:9px 10px;width:430px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:0 10px 28px rgba(0,0,0,.38)}
 /* 生成参数四列（清晰度 / 模型 / 比例 / 提示词）+ ▶ + 预览 */
 .ff-tbl-p1{width:74px;min-width:74px;max-width:74px}
+/* 参考素材（虚拟列，竖跨整组） */
+.ff-tbl-prefs{width:150px;min-width:150px;max-width:150px;white-space:normal}
+.ff-refs{display:flex;flex-wrap:wrap;gap:3px;align-items:center}
+.ff-ref-chip{display:flex;align-items:center;gap:3px;font-size:10.5px;line-height:16px;padding:1px 4px;border-radius:5px;border:1px solid var(--dsw-alias-border-l2);cursor:pointer;max-width:100%}
+.ff-ref-chip:hover{border-color:var(--dsw-alias-brand-primary)}
+.ff-ref-chip img{width:16px;height:16px;object-fit:cover;border-radius:3px;flex:0 0 auto}
+.ff-ref-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ff-ref-ghost{font-size:10.5px;line-height:16px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-bottom:1px dashed var(--dsw-alias-border-l2)}
+.ff-ref-ghost:hover{color:var(--dsw-alias-label-primary)}
+.ff-ref-add{font-size:11px;line-height:16px;padding:0 4px;border-radius:5px;border:1px dashed var(--dsw-alias-border-l2);cursor:pointer;color:var(--dsw-alias-label-secondary)}
+.ff-ref-add:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.ff-ref-menu{position:absolute;z-index:90;right:0;top:calc(100% + 3px);min-width:130px;display:flex;flex-direction:column;gap:2px;padding:4px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);box-shadow:0 8px 24px rgba(0,0,0,.28)}
+.ff-ref-menu div{font-size:11px;padding:3px 6px;border-radius:5px;cursor:pointer}
+.ff-ref-menu div:hover{background:var(--dsw-alias-bg-layer-3)}
+.ff-refs-panel{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
+.ff-refs-panel .box{min-width:420px;max-width:70vw;max-height:70vh;overflow:auto;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);padding:12px;display:flex;flex-direction:column;gap:8px}
+.ff-refs-panel .row{display:flex;align-items:center;gap:8px;font-size:11.5px;padding:4px 6px;border-radius:6px;background:var(--dsw-alias-bg-layer-2)}
+.ff-refs-panel .row img{width:26px;height:26px;object-fit:cover;border-radius:4px}
+.ff-refs-panel .grow{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ff-ref-pick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.ff-ref-pick-item{display:flex;flex-direction:column;gap:4px;padding:4px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);cursor:pointer;background:var(--dsw-alias-bg-layer-2)}
+.ff-ref-pick-item:hover{border-color:var(--dsw-alias-brand-primary)}
+.ff-ref-pick-item img{width:100%;height:88px;object-fit:cover;border-radius:6px;background:#000}
+.ff-ref-pick-item .lab{font-size:10.5px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ff-tbl-p2{width:70px;min-width:70px;max-width:70px}
 .ff-tbl-p3{width:66px;min-width:66px;max-width:66px}
 .ff-tbl-p4{width:150px;min-width:150px;max-width:150px;position:relative}
@@ -1603,9 +1627,10 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			function promptOfRow(row) {
 				const get = (key) => String((row && row[key]) != null ? row[key] : "").trim();
 				const parts = [];
+				const look = get("look");
+				if (look) parts.push("【画风】" + look + "。");
 				const move = get("move");
 				const shot = get("shot");
-				if (move || shot) parts.push([move, shot].filter(Boolean).join("、"));
 				const pic = get("pic");
 				if (pic) parts.push(pic);
 				const line = get("line");
@@ -1655,21 +1680,361 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			 * @param covers - 镜号数组（按分镜顺序）
 			 * @param rowByNo - 镜号 → 行对象
 			 */
+			function dialogueOfText(cell, speakers) {
+				const raw = String(cell || "").trim();
+				if (!raw) return "";
+				const segs = raw.split(/[；;]/).map((s) => s.trim()).filter(Boolean);
+				const out = [];
+				for (const s of segs) {
+					const m = /^([^：:]{1,14})[：:]([\s\S]+)$/.exec(s);
+					if (m) { speakers.push(m[1].trim()); out.push(m[1].trim() + "说：{" + m[2].trim() + "}"); }
+					else out.push(s);
+				}
+				return out.join("；");
+			}
+			/** 和宿主 composeUnitPrompt 同一口径：【事件脚本】镜头N… + 【保持一致】；台词写 {} */
 			function composeUnitText(covers, rowByNo) {
-				const parts = [];
+				const beats = [];
+				const notes = [];
+				const speakers = [];
+				const scenes = [];
 				(covers || []).forEach((no, i) => {
 					const r = rowByNo.get(String(no)) || {};
+					const shot = String(r.shot || "").trim();
+					const pic = String(r.pic || "").trim();
+					const cam = String(r.move || "").trim();
+					const sc = /^([^｜|]{1,12})[｜|]/.exec(pic);
+					if (sc) scenes.push(sc[1].trim());
+					const camMoves = cam && !/^(固定|固定镜头|不动|静止|固定机位)$/.test(cam);
 					const seg = [];
-					const cam = [r.move, r.shot].map((x) => String(x || '').trim()).filter(Boolean).join('、');
-					if (cam) seg.push(cam);
-					if (r.pic) seg.push(String(r.pic).trim());
-					if (r.line) seg.push('声音/台词：' + String(r.line).trim());
-					if (seg.length) parts.push('镜头' + (i + 1) + '：' + seg.join('；'));
+					let beat = [shot, pic].filter(Boolean).join("，");
+					if (beat && camMoves) beat += "（" + cam + "）";
+					if (beat) seg.push(beat);
+					const talk = dialogueOfText(r.line, speakers);
+					if (talk) seg.push(talk);
+					if (seg.length) beats.push("镜头" + (i + 1) + "：" + seg.join("；"));
+					if (String(r.note || "").trim()) notes.push(String(r.note).trim());
 				});
-				const notes = (covers || []).map((no) => String(((rowByNo.get(String(no)) || {}).note) || '').trim()).filter(Boolean);
-				if (notes.length) parts.push('备注：' + [...new Set(notes)].join('；'));
-				return parts.join('\n');
+				const keep = [];
+				const uniqScene = [...new Set(scenes)];
+				if (uniqScene.length === 1) keep.push("同一场景：" + uniqScene[0]);
+				else if (uniqScene.length > 1) keep.push("场景按顺序：" + uniqScene.join(" → "));
+				keep.push("人物身份、服装与站位连续");
+				const uniqSpeaker = [...new Set(speakers)];
+				if (uniqSpeaker.length) keep.push("说话人不互换：" + uniqSpeaker.join("、"));
+				for (const n of [...new Set(notes)]) keep.push(n);
+				const looks = (covers || []).map((no) => String(((rowByNo.get(String(no)) || {}).look) || "").trim());
+				const uniqLook = [...new Set(looks.filter(Boolean))];
+				const lookLine = uniqLook.length === 1
+					? uniqLook[0]
+					: looks.map((x, i) => (x ? "镜头" + (i + 1) + "：" + x : "")).filter(Boolean).join("；");
+				const parts = [];
+				if (lookLine) { parts.push("【画风】"); parts.push(lookLine + "。"); }
+				parts.push("【事件脚本】", ...beats);
+				if (keep.length) { parts.push("【保持一致】"); parts.push(keep.join("；") + "。"); }
+				return parts.join("\n");
 			}
+			/* ══ 参考素材（虚拟列，竖跨整组）══════════════════════════
+			 *
+			 * 设计见 `设计-参考素材.md`：元素由 agent 提、图只能由人绑，**绑一次全片生效**。
+			 * 格子里：已绑的显示缩略图 chip；没绑的显示浅灰名字（点一下就能选图）；＋ 手动挑元素。
+			 */
+			let refMenuDocClose = null;
+			let refMenuEsc = null;
+			function closeRefMenus() {
+				for (const x of Array.from(document.querySelectorAll(".ff-ref-menu"))) x.remove();
+				if (refMenuDocClose) {
+					document.removeEventListener("click", refMenuDocClose, true);
+					refMenuDocClose = null;
+				}
+				if (refMenuEsc) {
+					document.removeEventListener("keydown", refMenuEsc, true);
+					refMenuEsc = null;
+				}
+			}
+
+			function pickImageFiles(cb) {
+				const inp = el("input");
+				inp.type = "file";
+				inp.accept = "image/*";
+				inp.multiple = true;
+				inp.style.position = "fixed";
+				inp.style.left = "-9999px";
+				document.body.append(inp);
+				inp.addEventListener("change", () => {
+					const files = Array.from(inp.files || []);
+					inp.remove();
+					if (files.length) cb(files);
+				});
+				inp.click();
+			}
+
+			function refImagesOf(n, id) {
+				for (const u of (n.units || [])) for (const r of (u.refs || [])) {
+					if (String(r.id) === String(id)) return (r.images || []).slice();
+				}
+				return [];
+			}
+
+			function refPost(n, payload) {
+				return post("/filmflow/refs", { root: n.root || (current() && current().root) || "", ...payload });
+			}
+
+			async function refreshAfterRefs() {
+				SIG.tree = "";
+				await load();
+			}
+
+			/** 选图 → 上传到 素材/ → 绑到元素（全片生效） */
+			async function uploadRefs(n, elementId, files, replace) {
+				const made = [];
+				for (const f of files) {
+					if (f.size > 12 * 1024 * 1024) {
+						showNote("这张太大（" + (f.size / 1048576).toFixed(1) + "MB，上限 12MB）：" + f.name + "，先压缩");
+						continue;
+					}
+					const dataUrl = await new Promise((res, rej) => {
+						const fr = new FileReader();
+						fr.onload = () => res(String(fr.result || ""));
+						fr.onerror = () => rej(new Error("读图失败：" + f.name));
+						fr.readAsDataURL(f);
+					});
+					const r = await post("/filmflow/refs", { root: n.root || (current() && current().root) || "", action: "upload", name: f.name, dataUrl });
+					if (r && r.ok === false) throw new Error(r.error || "上传失败");
+					if (r && r.path) made.push(r.path);
+				}
+				const images = replace ? made.slice() : [...new Set([...refImagesOf(n, elementId), ...made])];
+				const r2 = await refPost(n, { action: "bind", id: elementId, images });
+				if (r2 && r2.ok === false) throw new Error(r2.error || "绑定失败");
+				showNote("已绑定：" + images.length + " 张 · 全片生效", "ok");
+				await refreshAfterRefs();
+			}
+
+			function openRefMenu(td, items) {
+				closeRefMenus();
+				const m = el("div", "ff-ref-menu");
+				for (const it of items) {
+					const row = el("div", undefined, it.label);
+					row.addEventListener("click", (ev) => { ev.stopPropagation(); closeRefMenus(); it.fn(); });
+					m.append(row);
+				}
+				td.append(m);
+				/* 点画布别处 / 按 Esc 也要能收起（用户 2026-11-04：点开就收不回去了）。
+				   监听**同步**挂上（不再等 setTimeout —— 那一拍里菜单可能已经被下一次打开换掉，
+				   浏览器就把这个菜单留成孤儿），用 armed 躲开"打开它的那一下"点击。 */
+				let armed = false;
+				refMenuDocClose = (ev) => {
+					if (!armed) return;
+					if (!m.contains(ev.target)) closeRefMenus();
+				};
+				refMenuEsc = (ev) => { if (ev.key === "Escape") closeRefMenus(); };
+				document.addEventListener("click", refMenuDocClose, true);
+				document.addEventListener("keydown", refMenuEsc, true);
+				setTimeout(() => { armed = true; }, 0);
+			}
+
+			/** 选图来源：本地文件 / 画布上已生成的图（素材库） */
+			function chooseRefSource(td, n, elementId, replace) {
+				openRefMenu(td, [
+					{ label: "选本地图片…", fn: () => pickImageFiles((files) => {
+						uploadRefs(n, elementId, files, replace).catch((e) => showNote(String((e && e.message) || e)));
+					}) },
+					{ label: "从素材库选（已生成的图）…", fn: () => openAssetPicker(n, elementId, replace) },
+				]);
+			}
+
+			/** 素材库选择器：本片已生成的图片，点一张就绑到元素 */
+			function openAssetPicker(n, elementId, replace) {
+				const root = n.root || (current() && current().root) || "";
+				fetch("/filmflow/assets?action=list&root=" + encodeURIComponent(root), { headers: { accept: "application/json" } })
+					.then((r) => r.json())
+					.then((j) => {
+						const imgs = (j.items || []).filter((x) => String(x.type) === "image");
+						const wrap = el("div", "ff-refs-panel");
+						const box = el("div", "box");
+						const head = el("div", "row");
+						head.append(el("div", "grow", "素材库 · 本片已生成的图（" + imgs.length + " 张）"));
+						const bClose = el("div", "ff-btn", "关闭");
+						bClose.addEventListener("click", () => wrap.remove());
+						head.append(bClose);
+						box.append(head);
+						if (!imgs.length) {
+							const empty = el("div", "row");
+							empty.append(el("div", "grow", "这片还没生成过图片（视频/音频不能当参考图）"));
+							box.append(empty);
+						}
+						const grid = el("div", "ff-ref-pick-grid");
+						for (const it of imgs) {
+							const cell = el("div", "ff-ref-pick-item");
+							const im = el("img");
+							im.src = "/filmflow/assets?action=file&root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent(it.src);
+							cell.append(im, el("div", "lab", String(it.node || "") + "　" + String(it.at || "").slice(0, 10)));
+							cell.title = it.src;
+							cell.addEventListener("click", () => {
+								refPost(n, { action: "fromAsset", id: elementId, src: it.src, replace: !!replace })
+									.then(() => { wrap.remove(); return refreshAfterRefs(); })
+									.catch((e) => showNote(String((e && e.message) || e)));
+							});
+							grid.append(cell);
+						}
+						if (imgs.length) box.append(grid);
+						wrap.append(box);
+						wrap.addEventListener("click", (ev) => { if (ev.target === wrap) wrap.remove(); });
+						document.body.append(wrap);
+					})
+					.catch((e) => showNote("素材库打不开：" + String((e && e.message) || e)));
+			}
+
+			/** 点 ＋：从本组元素里挑一个来绑（或新建元素） */
+			function openRefPickMenu(td, n, refs, unit) {
+				const items = refs.map((r) => ({
+					label: ((r.images || []).length ? "换图：" : "绑图：") + String(r.name || ""),
+					fn: () => chooseRefSource(td, n, r.id, (r.images || []).length > 0),
+				}));
+				items.push({
+					label: "＋ 新建元素…",
+					fn: () => {
+						const name = String(window.prompt("元素名（例如：唐老板 / A室）") || "").trim();
+						if (!name) return;
+						const kindRaw = String(window.prompt("种类：person / scene / prop / look", "person") || "person").trim();
+						const kind = ["person", "scene", "prop", "look"].includes(kindRaw) ? kindRaw : "person";
+						/* 新元素必须挂到这一格上（shots = 本组的镜号），否则它在表里没有落脚点：
+						   建完看不到、也绑不了图（2026-11-04 修）。刷完再点它自己的格子接上选图。 */
+						const shots = (unit && Array.isArray(unit.covers)) ? unit.covers.map(String) : [];
+						refPost(n, { action: "add", name, kind, shots })
+							.then(async () => {
+								await refreshAfterRefs();
+								/* 重画之后 td 已经是旧的，不能挂菜单：直接点新格子里它的名字。
+								   点到了就走正常路径（浅字 → 选来源），点不到多半是这组没匹配上镜号。 */
+								for (let i = 0; i < 40; i++) {
+									const g = Array.from(document.querySelectorAll(".ff-ref-ghost, .ff-ref-chip"))
+										.find((x) => x.textContent.trim() === name);
+									if (g) { g.click(); return; }
+									await new Promise((r) => setTimeout(r, 120));
+								}
+								showNote("新建了「" + name + "」，但这一组里没有它的格子；去素材库面板给它绑图");
+							})
+							.catch((e) => showNote(String((e && e.message) || e)));
+					},
+				});
+				openRefMenu(td, items);
+			}
+
+			/** 点已绑的 chip：换图 / 解绑 / 不用参考 / 看大图 */
+			function openRefChipMenu(td, n, r) {
+				const root = n.root || (current() && current().root) || "";
+				const url = "/filmflow/refs/file?root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent((r.images || [])[0] || "");
+				openRefMenu(td, [
+					{ label: "看大图", fn: () => window.open(url, "_blank") },
+					{ label: "换图（全片生效）", fn: () => chooseRefSource(td, n, r.id, true) },
+					{ label: "解绑这个元素", fn: () => { refPost(n, { action: "unbind", id: r.id }).then(() => refreshAfterRefs()).catch((e) => showNote(String((e && e.message) || e))); } },
+					{ label: "这片不用它的参考", fn: () => { refPost(n, { action: "skip", id: r.id, skip: true }).then(() => refreshAfterRefs()).catch((e) => showNote(String((e && e.message) || e))); } },
+				]);
+			}
+
+			/** 素材格：一个单元一格（并组时竖跨） */
+			function refsCell(n, unit, spanN) {
+				const td = el("td", "ff-tbl-pcell ff-tbl-prefs");
+				if (spanN > 1) td.rowSpan = spanN;
+				td.style.position = "relative";
+				const box = el("div", "ff-refs");
+				const refs = ((unit && Array.isArray(unit.refs)) ? unit.refs : []).filter((r) => r.state !== "skip");
+				if (!unit) {
+					td.append(el("div", "ff-ref-ghost", "（没有生成单元，先分组）"));
+					return td;
+				}
+				if (!refs.length) {
+					/* 没识别到元素也留入口：手动加一个元素再绑图 */
+					const add0 = el("div", "ff-ref-add", "＋");
+					add0.title = "这一组还没识别到元素；点这里新建一个再绑图";
+					add0.addEventListener("click", (ev) => { ev.stopPropagation(); openRefPickMenu(td, n, [], unit); });
+					box.append(add0);
+					td.append(box);
+					return td;
+				}
+				const root = n.root || (current() && current().root) || "";
+				for (const r of refs) {
+					const imgs = r.images || [];
+					if (imgs.length) {
+						const chip = el("div", "ff-ref-chip");
+						const im = el("img");
+						im.src = "/filmflow/refs/file?root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent(imgs[0]);
+						chip.append(im, el("span", undefined, String(r.name || "")));
+						chip.title = String(r.name || "") + (imgs.length > 1 ? "（" + imgs.length + " 张）" : "") + " · 全片生效；点一下换图/解绑";
+						chip.addEventListener("click", (ev) => { ev.stopPropagation(); openRefChipMenu(td, n, r); });
+						box.append(chip);
+					} else {
+						const g = el("div", "ff-ref-ghost", String(r.name || ""));
+						g.title = "点一下给「" + String(r.name || "") + "」选图（全片生效）";
+						g.addEventListener("click", (ev) => {
+							ev.stopPropagation();
+							chooseRefSource(td, n, r.id, false);
+						});
+						box.append(g);
+					}
+				}
+				const add = el("div", "ff-ref-add", "＋");
+				add.title = "给这一组的元素绑图（绑一次，全片生效）";
+				add.addEventListener("click", (ev) => { ev.stopPropagation(); openRefPickMenu(td, n, refs, unit); });
+				box.append(add);
+				td.append(box);
+				return td;
+			}
+
+			/** 素材库：全片元素一览（绑/解绑/不用/新建/自动匹配） */
+			function openRefsPanel(n) {
+				const root = n.root || (current() && current().root) || "";
+				fetch("/filmflow/refs?root=" + encodeURIComponent(root), { headers: { accept: "application/json" } })
+					.then((r) => r.json())
+					.then((j) => {
+						const wrap = el("div", "ff-refs-panel");
+						const box = el("div", "box");
+						const head = el("div", "row");
+						head.append(el("div", "grow", "素材库 · 绑一次全片生效（" + (j.elements || []).length + " 个元素）"));
+						const bAuto = el("div", "ff-btn", "自动匹配同名图");
+						bAuto.addEventListener("click", () => { refPost(n, { action: "autobind" }).then(() => { wrap.remove(); openRefsPanel(n); }).catch((e) => showNote(String((e && e.message) || e))); });
+						const bNew = el("div", "ff-btn", "＋ 新元素");
+						bNew.addEventListener("click", () => {
+							const name = String(window.prompt("元素名（例如：唐老板 / A室）") || "").trim();
+							if (!name) return;
+							const kindRaw = String(window.prompt("种类：person / scene / prop / look", "person") || "person").trim();
+							const kind = ["person", "scene", "prop", "look"].includes(kindRaw) ? kindRaw : "person";
+							refPost(n, { action: "add", name, kind }).then(() => { wrap.remove(); openRefsPanel(n); }).catch((e) => showNote(String((e && e.message) || e)));
+						});
+						const bClose = el("div", "ff-btn", "关闭");
+						bClose.addEventListener("click", () => wrap.remove());
+						head.append(bAuto, bNew, bClose);
+						box.append(head);
+						for (const elx of (j.elements || [])) {
+							const row = el("div", "row");
+							const imgs = elx.images || [];
+							if (imgs.length) {
+								const im = el("img");
+								im.src = "/filmflow/refs/file?root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent(imgs[0]);
+								row.append(im);
+							}
+							row.append(el("div", "grow", String(elx.name || "") + "　[" + String(elx.kind || "") + "]　"
+								+ (imgs.length ? imgs.length + " 张" : "未绑") + "　· " + (elx.units || []).length + " 个单元"));
+							const bBind = el("div", "ff-btn", imgs.length ? "换图" : "绑图");
+							bBind.addEventListener("click", () => pickImageFiles((files) => {
+								uploadRefs(n, elx.id, files).then(() => { wrap.remove(); openRefsPanel(n); }).catch((e) => showNote(String((e && e.message) || e)));
+							}));
+							const bSkip = el("div", "ff-btn", elx.state === "skip" ? "恢复参考" : "不用参考");
+							bSkip.addEventListener("click", () => {
+								refPost(n, { action: "skip", id: elx.id, skip: elx.state !== "skip" })
+									.then(() => { wrap.remove(); openRefsPanel(n); })
+									.catch((e) => showNote(String((e && e.message) || e)));
+							});
+							row.append(bBind, bSkip);
+							box.append(row);
+						}
+						wrap.append(box);
+						wrap.addEventListener("click", (ev) => { if (ev.target === wrap) wrap.remove(); });
+						document.body.append(wrap);
+					})
+					.catch((e) => showNote("素材库打不开：" + String((e && e.message) || e)));
+			}
+
 			/**
 			 * 提示词列的内容：平时一行摘要（前 18 字），点开是整段编辑框。
 			 * 标题里标出来源（程序拼的草稿 / agent 写的 / 我改过的），让人知道要不要审。
@@ -1833,6 +2198,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				const genRows = n.genRows && typeof n.genRows === "object" ? n.genRows : null;
 				if (genRows) {
 					trh.append(
+						el("th", "ff-tbl-prefs", "素材"),
 						el("th", "ff-tbl-p1", "清晰度"),
 						el("th", "ff-tbl-p2", "模型"),
 						el("th", "ff-tbl-p3", "比例"),
@@ -1846,6 +2212,12 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				/* 行内生成 + 预览（2026-11-03：生成不再是一个独立节点）—— 两格都是**虚拟列**，不写进 md */
 
 				thead.append(trh);
+				if (trh.querySelector(".ff-tbl-prefs")) {
+					const th0 = trh.querySelector(".ff-tbl-prefs");
+					th0.style.cursor = "pointer";
+					th0.title = "点开素材库：全片元素与绑定（绑一次，全片生效）";
+					th0.addEventListener("click", (ev) => { ev.stopPropagation(); openRefsPanel(n); });
+				}
 				table.append(thead);
 				const tbody = el("tbody");
 				for (const g of doc.groups || []) {
@@ -1855,7 +2227,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					if (p.length && !dupTitle) {
 						const tr = el("tr", "ff-tbl-grp");
 						const td = el("td");
-						td.colSpan = Math.max(1, cols.length) + (editable ? 1 : 0) + (genRows ? 2 : 0);
+						td.colSpan = Math.max(1, cols.length) + (editable ? 1 : 0) + (genRows ? 3 : 0);
 						td.textContent = String(p[p.length - 1]);
 						tr.append(td);
 						tbody.append(tr);
@@ -1874,11 +2246,15 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						const gsU = genRows ? (genRows[noU] || null) : null;
 						const uidAll = String((gsU && gsU.unit) || "");
 						/* 只有覆盖 ≥2 镜的单元才竖跨；一镜一单元保持一行一格 */
-						const uU = (() => {
-							if (!uidAll) return null;
-							const u0 = unitMap.get(uidAll);
-							return u0 && (u0.covers || []).length >= 2 ? u0 : null;
-						})();
+						/*
+						 * 单元一律认（含"一镜一组"）—— 参数 / 提示词 / 生成 / 预览全都挂在单元上；
+						 * 只有覆盖 ≥2 镜时才需要竖跨（下面用 spanN0 控制）。
+						 * 2026-11-04 修的坑：原来这里把一镜一组的单元直接 return null，
+						 * 于是那些行读的是**行级**参数、改也改行级，而生成用的是**单元级** ⇒
+						 * agent 把清晰度改成 720p，单镜那些行永远显示旧值、点了也没用。
+						 */
+						const uU = uidAll ? (unitMap.get(uidAll) || null) : null;
+						const spanN0 = uU ? Math.max(1, (uU.covers || []).length) : 1;
 						const spanList = []; /* 本行的竖跨格（参数/生成/预览），详情展开时要一起加 rowSpan */
 						/* 行尾操作格：▶ 生成（并组时只有组首那一行有） + ✕ 删行 */
 						if (genRows || editable) {
@@ -1890,7 +2266,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				 */
 				if (genRows && (!uU || !drawnParams.has(String(uU.id)))) {
 					if (uU) drawnParams.add(String(uU.id));
-					const spanN = uU ? (uU.covers || []).length : 1;
+					const spanN = spanN0;
 					const P = (uU ? uU.params : (gsU && gsU.params)) || {};
 					const tgt = uU ? { id: uU.id } : { no: noU };
 					const saveP = (k, v) => {
@@ -1935,11 +2311,23 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 							if (it.v === cur) o.selected = true;
 							sel.append(o);
 						}
-						if (!cur && list.length) sel.value = list[0].v;
+						/*
+						 * 参数是稀疏存的（可能只记了清晰度），没记的那几项要显示**宿主真正会用的默认值**：
+						 * 模型回落 2.5、清晰度 720p、比例 16:9（host/media/ark.js: ratio 缺省 16:9；
+						 * 清晰度缺省不传 = 720p，见 /filmflow/videoopts 的 default）。
+						 * 2026-11-04：原来直接选列表第一项 ⇒ 比例显示成 21:9、清晰度显示 480p，人在画布上看到的和实际发出去的不是一回事。
+						 */
+						if (!cur) {
+							const fallback = { model: MODEL_LIST[0].v, resolution: "720p", ratio: "16:9" }[key];
+							if (fallback && list.some((x) => String(x.v) === fallback)) sel.value = fallback;
+							else if (list.length) sel.value = list[0].v;
+						}
 						sel.addEventListener("change", () => saveP(key, sel.value));
 						td.append(sel);
 						return td;
 					};
+
+					const tdRefs = refsCell(n, uU, spanN);
 
 					const tdRes = mkSel("ff-tbl-p1", "resolution", "720p");
 					const tdMode = mkSel("ff-tbl-p2", "model", "2.5");
@@ -1947,11 +2335,11 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					const tdPrompt = el("td", "ff-tbl-pcell ff-tbl-p4");
 					tdPrompt.rowSpan = spanN;
 					tdPrompt.append(promptCell(n, promptInfo));
-					tr.append(tdRes, tdMode, tdRatio, tdPrompt);
-					if (uU) spanList.push(tdRes, tdMode, tdRatio, tdPrompt);
+					tr.append(tdRefs, tdRes, tdMode, tdRatio, tdPrompt);
+					if (uU && spanN > 1) spanList.push(tdRefs, tdRes, tdMode, tdRatio, tdPrompt);
 				}
 							const tdAct = el("td", "ff-tbl-acts");
-				if (uU) tdAct.rowSpan = (uU.covers || []).length;
+				if (spanN0 > 1) tdAct.rowSpan = spanN0;
 							if (genRows && isUnitHead) {
 								if (uU) {
 									drawnUnits.add(String(uU.id));
@@ -1970,14 +2358,14 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 									tdAct.append(btn);
 								}
 							}
-							if (genRows && isUnitHead) { tr.append(tdAct); if (uU) spanList.push(tdAct); }
+							if (genRows && isUnitHead) { tr.append(tdAct); if (uU && spanN0 > 1) spanList.push(tdAct); }
 						}
 						/* 预览列：并组时只有组首那行有，竖跨组内所有行 */
 						if (genRows) {
 							if (uU) {
 								if (!spanCells.has(String(uU.id))) {
 									const td2 = el("td", "ff-tbl-thumb-cell ff-tbl-span");
-									td2.rowSpan = (uU.covers || []).length;
+									if (spanN0 > 1) td2.rowSpan = spanN0;
 									const ua = uU.asset;
 									if (ua && ua.src) {
 										const uurl = "/filmflow/assets?action=file&root=" + encodeURIComponent(n.root || (current() && current().root) || "") + "&p=" + encodeURIComponent(ua.src);
@@ -1995,8 +2383,10 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 										}
 									}
 									tr.append(td2);
-									spanList.push(td2);
-									spanCells.set(String(uU.id), spanList.slice());
+									if (spanN0 > 1) {
+										spanList.push(td2);
+										spanCells.set(String(uU.id), spanList.slice());
+									}
 								}
 							} else {
 								const td2 = el("td", "ff-tbl-thumb-cell");
@@ -2030,14 +2420,20 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						const uidRow = String((g2 && g2.unit) || "");
 						const uRow = uidRow ? unitMap.get(uidRow) : null;
 						const mergedRow = !!(uRow && (uRow.covers || []).length >= 2);
+						const isUnitRow = !!uRow; /* 有单元就按单元走（含一镜一组） */
 						const detail = el("tr", "ff-tbl-detail");
 						detail.style.display = "none";
 						const dtd = el("td");
-						dtd.colSpan = Math.max(1, cols.length) + ((editable || genRows) ? 1 : 0) + (genRows ? 1 : 0);
+						dtd.colSpan = Math.max(1, cols.length) + ((editable || genRows) ? 1 : 0) + (genRows ? 2 : 0);
 						const box = el("div", "ff-tbl-detail-box");
-						const lab = el("div", "ff-tbl-detail-lab", mergedRow ? ("最终提示词（整组 " + uidRow + " 共用 · 只读；要改请点上面参数卡里的「保存提示词」)") : "提示词（由这一行汇总；改了就以改的为准）");
+						const labTxt = mergedRow
+							? ("最终提示词（整组 " + uidRow + " 共用 · 只读；要改请点上面参数卡里的「保存提示词」)")
+							: (isUnitRow
+								? ("最终提示词（" + uidRow + " = 镜" + (uRow.covers || []).join("/") + "；改了就以改的为准）")
+								: "提示词（由这一行汇总；改了就以改的为准）");
+						const lab = el("div", "ff-tbl-detail-lab", labTxt);
 						const ta = el("textarea", "ff-tbl-detail-ta");
-						ta.value = mergedRow ? (String(uRow.prompt || "") || composeUnitText(uRow.covers || [], rowByNo)) : String((g2 && g2.prompt) || promptOfRow(row) || "");
+						ta.value = isUnitRow ? (String(uRow.prompt || "") || composeUnitText(uRow.covers || [], rowByNo)) : String((g2 && g2.prompt) || promptOfRow(row) || "");
 						ta.readOnly = mergedRow; /* 并组的行：提示词是整组共用的，别在这里单改 */
 						ta.rows = 4;
 						ta.addEventListener("click", (ev) => ev.stopPropagation());
@@ -2046,7 +2442,9 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						bSave.addEventListener("click", async (ev) => {
 							ev.stopPropagation();
 							try {
-								await post("/filmflow/gen", { root: n.root || (current() && current().root) || "", action: "setPrompt", no, prompt: ta.value });
+								await post("/filmflow/gen", isUnitRow
+									? { root: n.root || (current() && current().root) || "", action: "setUnitPrompt", id: uidRow, prompt: ta.value }
+									: { root: n.root || (current() && current().root) || "", action: "setPrompt", no, prompt: ta.value });
 								showNote("提示词已保存", "ok");
 							} catch (e) { showNote("保存失败：" + String((e && e.message) || e)); }
 						});
