@@ -121,6 +121,10 @@ window.__ModuleLoader__.load({
 .ff-btn.p{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
 .ff-btn.w{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}
 .ff-btn.off{opacity:.35;cursor:default;pointer-events:none}
+/* 刷新按钮的即时反馈（2026-11-04）：请求中变淡、成功闪绿、失败闪红 */
+.ff-btn.busy{opacity:.55;pointer-events:none}
+.ff-btn.ok{color:var(--dsw-alias-state-success-primary,#3fb950);border-color:currentColor}
+.ff-btn.bad{color:var(--dsw-alias-state-danger-primary,#f85149);border-color:currentColor}
 .ff-stage{flex:1 1 auto;position:relative;overflow:hidden;cursor:grab;min-height:0}
 .ff-stage.drag{cursor:grabbing}
 .ff-world{position:absolute;left:0;top:0;transform-origin:0 0;padding:32px}
@@ -478,12 +482,51 @@ button.ff-btn{background:transparent;font-family:inherit}
 .ff-tbl-thumb-tag{width:28px;height:22px;line-height:20px;margin:0 auto;border-radius:4px;cursor:pointer;
   border:1px solid var(--dsw-alias-border-l2);font-size:11px;color:var(--dsw-alias-label-secondary)}
 .ff-tbl-thumb-tag:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+td.ff-tbl-span{vertical-align:middle}
+/* 生成/预览不是一个"列"：行尾两个窄格的小图标，跟 ✕ 一样是操作，不是数据 */
+.ff-tbl-gen-cell{width:34px;min-width:34px;max-width:34px;padding:2px}
+.ff-tbl-thumb-cell{width:54px;min-width:54px;max-width:54px;padding:2px}
+/* 行尾操作格：▶ 生成 + ✕ 删行（都不占"数据列"，表头只有一个空格） */
+/* 参数格：一格显示「清晰度 · 模型 · 比例」，点开是三个下拉 */
+.ff-tbl-params{width:104px;min-width:104px;max-width:104px;padding:2px 4px;vertical-align:middle}
+.ff-params{position:relative}
+.ff-params-sum{font-size:11px;line-height:20px;padding:0 4px;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+.ff-params-sum:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}
+.ff-params-pop{position:absolute;right:0;top:calc(100% + 4px);z-index:80;display:flex;flex-direction:column;gap:8px;padding:9px 10px;width:430px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:0 10px 28px rgba(0,0,0,.38)}
+/* 生成参数四列（清晰度 / 模型 / 比例 / 提示词）+ ▶ + 预览 */
+.ff-tbl-p1{width:74px;min-width:74px;max-width:74px}
+.ff-tbl-p2{width:70px;min-width:70px;max-width:70px}
+.ff-tbl-p3{width:66px;min-width:66px;max-width:66px}
+.ff-tbl-p4{width:150px;min-width:150px;max-width:150px;position:relative}
+.ff-tbl-actsth{width:34px;min-width:34px;max-width:34px}
+.ff-tbl-pcell{padding:2px 3px;vertical-align:middle;text-align:center}
+.ff-tbl-psel{width:100%;height:22px;font-size:11px;border-radius:5px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:0 2px}
+.ff-pcell{position:relative}
+.ff-pcell-sum{font-size:11px;line-height:20px;padding:0 5px;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+.ff-pcell-sum:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}
+.ff-pcell-pop{position:absolute;right:0;top:calc(100% + 4px);z-index:80;display:flex;flex-direction:column;gap:6px;padding:9px 10px;width:380px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:0 10px 28px rgba(0,0,0,.38);text-align:left}
+.ff-pcell-lab{font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.ff-pcell-ta{width:100%;box-sizing:border-box;resize:vertical;font-size:11.5px;line-height:1.6;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:6px 7px}
+.ff-pcell-bar{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ff-pcell-hint{font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.ff-params-cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.ff-params-col{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ff-params-prompt{display:flex;flex-direction:column;gap:5px;border-top:1px solid var(--dsw-alias-border-l2);padding-top:7px}
+.ff-params-ta{width:100%;box-sizing:border-box;resize:vertical;font-size:11.5px;line-height:1.6;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:6px 7px}
+.ff-params-bar{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ff-params-hint{font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.ff-params-lab{font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.ff-params-sel{font-size:11.5px;height:24px;border-radius:5px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);padding:0 4px}
+.ff-tbl-acts{width:64px;min-width:64px;max-width:64px;text-align:center;white-space:nowrap}
+.ff-tbl-acts .ff-tbl-go,.ff-tbl-acts .ff-tbl-del{display:inline-block;vertical-align:middle;margin:0 2px}
+.ff-tbl-del{cursor:pointer;font-size:11px;color:var(--dsw-alias-label-tertiary);padding:2px 3px;border-radius:4px}
+.ff-tbl-del:hover{color:var(--dsw-alias-state-error-primary)}
+.ff-tbl-go{width:24px;height:22px;line-height:20px;border-radius:5px;cursor:pointer;text-align:center;font-size:11px;user-select:none;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}
+td.ff-tbl-span .ff-tbl-gen{margin:0 auto}
+.ff-tbl-unitid{font-size:10px;line-height:12px;margin-bottom:2px;color:var(--dsw-alias-brand-primary);font-weight:700;letter-spacing:.4px}
 /* 生成单元的"组带"：一行脚本格对一格视频 —— 组首那一条横带管整组 */
-.ff-tbl-band td{background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent);
   border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2);
   font-size:11.5px;font-weight:600;letter-spacing:.2px;color:var(--dsw-alias-label-primary)}
-.ff-tbl-band td:first-child{padding-left:10px}
-.ff-tbl-sub{font-size:10.5px;color:var(--dsw-alias-label-tertiary);cursor:default;letter-spacing:.3px}
 .ff-tbl-no{cursor:pointer}
 .ff-tbl-no:hover{color:var(--dsw-alias-brand-primary)}
 .ff-tbl-detail td{padding:8px 10px;background:var(--dsw-alias-bg-layer-1)}
@@ -1606,6 +1649,148 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				await load();
 			}
 
+
+			/**
+			 * 把一组镜拼成一条多镜头提示词（和宿主 composeUnitPrompt 同一口径，用来在参数卡里预览/编辑）。
+			 * @param covers - 镜号数组（按分镜顺序）
+			 * @param rowByNo - 镜号 → 行对象
+			 */
+			function composeUnitText(covers, rowByNo) {
+				const parts = [];
+				(covers || []).forEach((no, i) => {
+					const r = rowByNo.get(String(no)) || {};
+					const seg = [];
+					const cam = [r.move, r.shot].map((x) => String(x || '').trim()).filter(Boolean).join('、');
+					if (cam) seg.push(cam);
+					if (r.pic) seg.push(String(r.pic).trim());
+					if (r.line) seg.push('声音/台词：' + String(r.line).trim());
+					if (seg.length) parts.push('镜头' + (i + 1) + '：' + seg.join('；'));
+				});
+				const notes = (covers || []).map((no) => String(((rowByNo.get(String(no)) || {}).note) || '').trim()).filter(Boolean);
+				if (notes.length) parts.push('备注：' + [...new Set(notes)].join('；'));
+				return parts.join('\n');
+			}
+			/**
+			 * 提示词列的内容：平时一行摘要（前 18 字），点开是整段编辑框。
+			 * 标题里标出来源（程序拼的草稿 / agent 写的 / 我改过的），让人知道要不要审。
+			 */
+			function promptCell(n, promptInfo) {
+				const box = el("div", "ff-pcell");
+				const srcTxt = ({ program: "草稿", agent: "agent", human: "我改的" })[String((promptInfo && promptInfo.source) || "")] || "未写";
+				const sum = el("div", "ff-pcell-sum", "");
+				const paint = () => {
+					const v = String((promptInfo && promptInfo.value) || "").replace(/\s+/g, " ").trim();
+					sum.textContent = v ? (v.slice(0, 18) + (v.length > 18 ? "…" : "")) : "（还没写）";
+					sum.title = "提示词 · " + srcTxt + (v ? "\n\n" + v : "");
+				};
+				paint();
+				const pop = el("div", "ff-pcell-pop");
+				pop.style.display = "none";
+				let built = false;
+				let labEl = null;
+				const build = () => {
+					pop.innerHTML = "";
+					const ta = el("textarea", "ff-pcell-ta");
+					ta.value = String((promptInfo && promptInfo.value) || "");
+					ta.rows = 8;
+					/* Esc 关掉弹层（不然只能再点一次那格） */
+					ta.addEventListener("keydown", (ev) => {
+						if (ev.key === "Escape") { ev.stopPropagation(); closePop(); }
+					});
+					const bar = el("div", "ff-pcell-bar");
+					const hint = el("div", "ff-pcell-hint", "点 ▶ 发出去的就是这段");
+					const bSave = el("div", "ff-btn p", "保存提示词");
+					bSave.addEventListener("click", async (ev) => {
+						ev.stopPropagation();
+						try {
+							await (promptInfo && promptInfo.save ? promptInfo.save(ta.value) : Promise.resolve());
+							promptInfo.value = ta.value;
+							promptInfo.source = "human";
+							paint();
+							showNote("提示词已保存", "ok");
+							if (labEl) labEl.textContent = "提示词 · 我改的";
+							closePop();
+						} catch (e) { showNote("保存失败：" + String((e && e.message) || e)); }
+					});
+					bar.append(hint, bSave);
+					labEl = el("div", "ff-pcell-lab", "提示词 · " + srcTxt);
+					pop.append(labEl, ta, bar);
+				};
+				/*
+				 * 弹层怎么关（用户 2026-11-04 报「保存了框也不消失」）：
+				 * 点外面关、按 Esc 关、保存成功也关 —— 只靠"再点一次那格"是不够的。
+				 */
+				let docClose = null;
+				let foldRestore = null;
+				const closePop = () => {
+					pop.style.display = "none";
+					if (docClose) { document.removeEventListener("click", docClose, true); docClose = null; }
+					/* 把折叠框照原样收回去（高度是 px 字符串，原样存原样还） */
+					if (foldRestore) {
+						foldRestore.clip.style.maxHeight = foldRestore.max;
+						foldRestore.clip.style.overflowY = foldRestore.oy;
+						foldRestore.clip.scrollTop = foldRestore.scroll;
+						foldRestore = null;
+					}
+				};
+				/*
+				 * 弹层放哪儿、怎么收（2026-11-04 用户报「保存了框也不消失」「有时候收不到十行」一起修的）：
+				 * ① 折叠时那层是滚动框（实测高 278），弹层 231 高 ⇒ 靠下的行必然被裁掉半截，
+				 *    所以打开时把折叠框临时全展开，关掉照原样收回去（连滚动位置一起还）。
+				 * ② 展开后还有第二个裁剪者（节点正文），下面放不下就翻到这一格上面。
+				 * ③ 判定只比 rect；要写高度就用布局像素 —— 画布有 scale，rect 量到的是缩放后的值。
+				 */
+				const nearestClipper = (node) => {
+					for (let e = node.parentElement; e; e = e.parentElement) {
+						const st = getComputedStyle(e);
+						if (st.overflowY !== "visible" || st.overflowX !== "visible") return e;
+					}
+					return null;
+				};
+				const placePop = () => {
+					pop.style.top = "";
+					pop.style.bottom = "";
+					pop.style.maxHeight = "";
+					pop.style.overflowY = "";
+					const c2 = nearestClipper(pop);
+					if (!c2) return;
+					const cr = c2.getBoundingClientRect();
+					const sr = sum.getBoundingClientRect();
+					const pr = pop.getBoundingClientRect();
+					if (cr.bottom - sr.bottom >= pr.height + 8) return;
+					pop.style.top = "auto";
+					pop.style.bottom = "calc(100% + 4px)";
+					if (pop.getBoundingClientRect().top >= cr.top + 2) return;
+					/* 上下都放不下：留出可视高度，自己在里面滚 */
+					pop.style.top = "";
+					pop.style.bottom = "";
+					pop.style.maxHeight = Math.max(140, Math.round(c2.clientHeight * 0.9)) + "px";
+					pop.style.overflowY = "auto";
+				};
+				const openPop = () => {
+					if (!built) { built = true; build(); }
+					pop.style.display = "";
+					const clip = pop.closest ? pop.closest(".tbl-fold") : null;
+					if (clip && String(clip.className).indexOf("tbl-open") < 0) {
+						foldRestore = { clip: clip, max: clip.style.maxHeight, oy: clip.style.overflowY, scroll: clip.scrollTop };
+						clip.style.maxHeight = "none";
+						clip.style.overflowY = "visible";
+					}
+					placePop();
+					if (!docClose) {
+						docClose = (ev) => { if (!box.contains(ev.target)) closePop(); };
+						/* 下一拍再挂，否则这一下点击自己就把框关了 */
+						setTimeout(() => { if (docClose) document.addEventListener("click", docClose, true); }, 0);
+					}
+				};
+				sum.addEventListener("click", (ev) => {
+					ev.stopPropagation();
+					if (pop.style.display === "none") openPop(); else closePop();
+				});
+				pop.addEventListener("click", (ev) => ev.stopPropagation());
+				box.append(sum, pop);
+				return box;
+			}
 			/** 点了行内「生成」：先定提示词，再交给宿主起任务。 */
 			async function genRow(n, no, row, g, running, btn) {
 				const p = current();
@@ -1646,11 +1831,20 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				for (const c of cols) trh.append(el("th", undefined, String((c && (c.label || c.key)) || "")));
 				const editable = !!(n.src && n.fileText);
 				const genRows = n.genRows && typeof n.genRows === "object" ? n.genRows : null;
-				if (editable) trh.append(el("th", "ff-tbl-op", ""));
-				/* 行内生成 + 预览（2026-11-03：生成不再是一个独立节点）—— 两格都是**虚拟列**，不写进 md */
 				if (genRows) {
-					trh.append(el("th", "ff-tbl-gen", "生成"), el("th", "ff-tbl-thumb", "预览"));
+					trh.append(
+						el("th", "ff-tbl-p1", "清晰度"),
+						el("th", "ff-tbl-p2", "模型"),
+						el("th", "ff-tbl-p3", "比例"),
+						el("th", "ff-tbl-p4", "提示词"),
+						el("th", "ff-tbl-actsth", ""),
+					);
+				} else if (editable) {
+					trh.append(el("th", "ff-tbl-op", ""));
 				}
+				if (genRows) trh.append(el("th", "ff-tbl-thumb", "预览"));
+				/* 行内生成 + 预览（2026-11-03：生成不再是一个独立节点）—— 两格都是**虚拟列**，不写进 md */
+
 				thead.append(trh);
 				table.append(thead);
 				const tbody = el("tbody");
@@ -1666,113 +1860,165 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						tr.append(td);
 						tbody.append(tr);
 					}
-					/* ★ 生成单元（2026-11-03）：几行脚本格 → 一格视频。*/
-					let lastUnit = "";
+					/* ★ 生成单元（2026-11-03）：几行脚本格 → **一格视频**（rowspan 竖跨这几行）。*/
+					const rowByNo = new Map();
+					for (const gg of doc.groups || []) for (const rr of gg.rows || []) rowByNo.set(String(rr && rr.no), rr);
 					const unitMap = new Map((Array.isArray(n.units) ? n.units : []).map((u) => [String(u.id), u]));
+					const drawnUnits = new Set();
+					const drawnParams = new Set();
+					const spanCells = new Map(); // unitId → [生成格, 预览格]，详情展开时要跟着加 rowSpan
 					for (const row of g.rows || []) {
-						const tr = el("tr");
+						const tr = el("tr", "ff-tbl-row");
 						for (const c of cols) tr.append(el("td", undefined, String((row && row[c.key]) ?? "")));
 						const noU = String((row && row.no) != null ? row.no : "").trim();
 						const gsU = genRows ? (genRows[noU] || null) : null;
 						const uidAll = String((gsU && gsU.unit) || "");
-						/*
-						 * 只有**覆盖 ≥2 个镜**的单元才画组带、才把行内的按钮收走。
-						 * 一镜一单元（= 分组实质上没并组）时保持老样子：一行一格。
-						 * 否则 31 个单镜单元会画成 31 条组带，比原来更乱（2026-11-03 实测踩到）。
-						 */
-						const uidU = (() => {
-							if (!uidAll) return "";
+						/* 只有覆盖 ≥2 镜的单元才竖跨；一镜一单元保持一行一格 */
+						const uU = (() => {
+							if (!uidAll) return null;
 							const u0 = unitMap.get(uidAll);
-							return u0 && (u0.covers || []).length >= 2 ? uidAll : "";
+							return u0 && (u0.covers || []).length >= 2 ? u0 : null;
 						})();
-						const uU = uidU ? unitMap.get(uidU) : null;
-						if (uU && uidU !== lastUnit) {
-							lastUnit = uidU;
-							const band = el("tr", "ff-tbl-band");
-							const info = el("td");
-							info.colSpan = Math.max(1, cols.length) + (editable ? 1 : 0);
-							info.textContent = uidU + " · " + (uU.durationSec || "?") + " 秒 · 镜 " + (uU.covers || []).join("–");
-							info.title = String(uU.why || "") + (uU.prompt ? "\n\n提示词：\n" + uU.prompt : "");
-							band.append(info);
-							const ust = String(uU.status || "idle");
-							const urun = ust === "running" || ust === "queued";
-							const ubtn = el("div", "ff-tbl-gen" + (urun ? " run" : uU.asset ? " done" : ""), urun ? (ust === "queued" ? "排队" : "生成中") : (uU.asset ? "重生成" : (ust === "failed" ? "重试" : "生成")));
-							ubtn.title = uU.error ? ("上次失败：" + uU.error) : ("一次生成 " + (uU.covers || []).length + " 个镜（" + (uU.durationSec || "?") + " 秒），出片是一条整的");
-							ubtn.addEventListener("click", (ev) => { ev.stopPropagation(); void genUnit(n, uU, urun, ubtn); });
-							const ub1 = el("td", "ff-tbl-gen-cell");
-							ub1.append(ubtn);
-							band.append(ub1);
-							const ub2 = el("td", "ff-tbl-thumb-cell");
-							const ua = uU.asset;
-							if (ua && ua.src) {
-								const uurl = "/filmflow/assets?action=file&root=" + encodeURIComponent(n.root || (current() && current().root) || "") + "&p=" + encodeURIComponent(ua.src);
-								if (String(ua.type) === "image") {
-									const im = el("img", "ff-tbl-thumb-img");
-									im.src = uurl;
-									im.title = "点开看大图";
-									im.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: ua }); });
-									ub2.append(im);
+						const spanList = []; /* 本行的竖跨格（参数/生成/预览），详情展开时要一起加 rowSpan */
+						/* 行尾操作格：▶ 生成（并组时只有组首那一行有） + ✕ 删行 */
+						if (genRows || editable) {
+							/** 这一行是不是"组首"（没有并组时，自己也算自己那组的首） */
+							const isUnitHead = !uU || !drawnUnits.has(String(uU.id));
+				/*
+				 * 生成参数四列（2026-11-04 用户要求：清晰度 / 模型 / 比例 / 提示词 **各占一列**）。
+				 * 并组时这四列 + ▶ + 预览 全部竖跨整组，组内其余行不再重复占格。
+				 */
+				if (genRows && (!uU || !drawnParams.has(String(uU.id)))) {
+					if (uU) drawnParams.add(String(uU.id));
+					const spanN = uU ? (uU.covers || []).length : 1;
+					const P = (uU ? uU.params : (gsU && gsU.params)) || {};
+					const tgt = uU ? { id: uU.id } : { no: noU };
+					const saveP = (k, v) => {
+						P[k] = v;
+						post("/filmflow/gen", { root: n.root || (current() && current().root) || "", action: "setParams", ...tgt, params: P })
+							.catch((e) => showNote("参数没存上：" + String((e && e.message) || e)));
+					};
+					const promptInfo = uU
+						? {
+							unit: true,
+							source: String(uU.promptSource || ""),
+							value: String(uU.prompt || "") || composeUnitText(uU.covers || [], rowByNo),
+							save: (txt) => post("/filmflow/gen", { root: n.root || (current() && current().root) || "", action: "setUnitPrompt", id: uU.id, prompt: txt }),
+						}
+						: {
+							unit: false,
+							source: String((gsU && gsU.promptSource) || ""),
+							value: String((gsU && gsU.prompt) || "") || promptOfRow(row),
+							save: (txt) => post("/filmflow/gen", { root: n.root || (current() && current().root) || "", action: "setPrompt", no: noU, prompt: txt }),
+						};
+
+					/* 选项写死在前端：模型/清晰度/比例都是固定枚举，没必要异步拉一次（异步会导致下拉先空后填，踩过） */
+					const MODEL_LIST = [
+						{ v: "doubao-seedance-2-5-260628", t: "2.5", res: ["480p", "720p", "1080p"], ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] },
+						{ v: "doubao-seedance-2-0-260128", t: "2.0", res: ["480p", "720p", "1080p", "4k"], ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] },
+						{ v: "doubao-seedance-2-0-fast-260128", t: "2.0 fast", res: ["480p", "720p", "1080p"], ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] },
+						{ v: "doubao-seedance-2-0-mini-260615", t: "2.0 mini", res: ["480p", "720p", "1080p"], ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] },
+					];
+					const modelOf = () => MODEL_LIST.find((m) => m.v === (P.model || MODEL_LIST[0].v)) || MODEL_LIST[0];
+					const mkSel = (cls, key, fallback) => {
+						const td = el("td", "ff-tbl-pcell " + cls);
+						td.rowSpan = spanN;
+						const sel = el("select", "ff-tbl-psel");
+						sel.addEventListener("click", (ev) => ev.stopPropagation());
+						const list = key === "model"
+							? MODEL_LIST.map((m) => ({ v: m.v, t: m.t }))
+							: (key === "resolution" ? modelOf().res : modelOf().ratios).map((v) => ({ v: String(v), t: String(v) }));
+						const cur = String(P[key] || "");
+						for (const it of list) {
+							const o = el("option", undefined, it.t);
+							o.value = it.v;
+							if (it.v === cur) o.selected = true;
+							sel.append(o);
+						}
+						if (!cur && list.length) sel.value = list[0].v;
+						sel.addEventListener("change", () => saveP(key, sel.value));
+						td.append(sel);
+						return td;
+					};
+
+					const tdRes = mkSel("ff-tbl-p1", "resolution", "720p");
+					const tdMode = mkSel("ff-tbl-p2", "model", "2.5");
+					const tdRatio = mkSel("ff-tbl-p3", "ratio", "16:9");
+					const tdPrompt = el("td", "ff-tbl-pcell ff-tbl-p4");
+					tdPrompt.rowSpan = spanN;
+					tdPrompt.append(promptCell(n, promptInfo));
+					tr.append(tdRes, tdMode, tdRatio, tdPrompt);
+					if (uU) spanList.push(tdRes, tdMode, tdRatio, tdPrompt);
+				}
+							const tdAct = el("td", "ff-tbl-acts");
+				if (uU) tdAct.rowSpan = (uU.covers || []).length;
+							if (genRows && isUnitHead) {
+								if (uU) {
+									drawnUnits.add(String(uU.id));
+									const ust = String(uU.status || "idle");
+									const urun = ust === "running" || ust === "queued";
+									const ubtn = el("div", "ff-tbl-go" + (urun ? " run" : uU.asset ? " done" : ""), urun ? "◌" : (uU.asset ? "↻" : "▶"));
+									ubtn.title = uU.error ? ("上次失败：" + uU.error) : ("这一格管 " + (uU.covers || []).length + " 个镜（镜" + (uU.covers || []).join("/") + "），一次生成一条 " + (uU.durationSec || "?") + " 秒");
+									ubtn.addEventListener("click", (ev) => { ev.stopPropagation(); void genUnit(n, uU, urun, ubtn); });
+									tdAct.append(ubtn);
 								} else {
-									const tag = el("div", "ff-tbl-thumb-tag", String(ua.type) === "audio" ? "♪" : "▶");
-									tag.title = "点开播放（这是整组那一条）";
-									tag.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: ua }); });
-									ub2.append(tag);
+									const st = String((gsU && gsU.status) || "idle");
+									const running = st === "running" || st === "queued";
+									const btn = el("div", "ff-tbl-go" + (running ? " run" : gsU && gsU.asset ? " done" : ""), running ? "◌" : (gsU && gsU.asset ? "↻" : "▶"));
+									btn.title = gsU && gsU.error ? ("上次失败：" + gsU.error) : "点一下生成这一镜";
+									btn.addEventListener("click", (ev) => { ev.stopPropagation(); void genRow(n, noU, row, gsU, running, btn); });
+									tdAct.append(btn);
 								}
 							}
-							band.append(ub2);
-							tbody.append(band);
+							if (genRows && isUnitHead) { tr.append(tdAct); if (uU) spanList.push(tdAct); }
 						}
-					if (genRows) {
-						const no = String((row && row.no) != null ? row.no : "").trim();
-						const g = genRows[no] || null;
-						const st = String((g && g.status) || "idle");
-						const running = st === "running" || st === "queued";
-						const btn = el("div", "ff-tbl-gen" + (running ? " run" : g && g.asset ? " done" : ""),
-							running ? (st === "queued" ? "排队" : "生成中") : (g && g.asset ? "重生成" : (st === "failed" ? "重试" : "生成")));
-						btn.title = g && g.error ? ("上次失败：" + g.error) : "点一下生成这一镜（提示词从这一行汇总）";
-						btn.addEventListener("click", (ev) => {
-							ev.stopPropagation();
-							void genRow(n, no, row, g, running, btn);
-						});
-						const td1 = el("td", "ff-tbl-gen-cell");
-						if (uidU) {
-							const sub = el("span", "ff-tbl-sub", "⊂ " + uidU);
-							sub.title = "这一镜跟 " + uidU + " 一起生成 —— 用上面那一格";
-							td1.append(sub);
-						} else {
-							td1.append(btn);
-						}
-						tr.append(td1);
-						const td2 = el("td", "ff-tbl-thumb-cell");
-						const a = uidU ? null : (g && g.asset);
-						if (a && a.src) {
-							const url = "/filmflow/assets?action=file&root=" + encodeURIComponent(n.root || (current() && current().root) || "") + "&p=" + encodeURIComponent(a.src);
-							if (String(a.type) === "image") {
-								const im = el("img", "ff-tbl-thumb-img");
-								im.src = url;
-								im.title = "点开看大图";
-								im.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: a }); });
-								td2.append(im);
+						/* 预览列：并组时只有组首那行有，竖跨组内所有行 */
+						if (genRows) {
+							if (uU) {
+								if (!spanCells.has(String(uU.id))) {
+									const td2 = el("td", "ff-tbl-thumb-cell ff-tbl-span");
+									td2.rowSpan = (uU.covers || []).length;
+									const ua = uU.asset;
+									if (ua && ua.src) {
+										const uurl = "/filmflow/assets?action=file&root=" + encodeURIComponent(n.root || (current() && current().root) || "") + "&p=" + encodeURIComponent(ua.src);
+										if (String(ua.type) === "image") {
+											const im = el("img", "ff-tbl-thumb-img");
+											im.src = uurl;
+											im.title = "点开看大图";
+											im.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: ua }); });
+											td2.append(im);
+										} else {
+											const tag = el("div", "ff-tbl-thumb-tag", String(ua.type) === "audio" ? "♪" : "▸");
+											tag.title = "点开播放（这一组那一条）";
+											tag.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: ua }); });
+											td2.append(tag);
+										}
+									}
+									tr.append(td2);
+									spanList.push(td2);
+									spanCells.set(String(uU.id), spanList.slice());
+								}
 							} else {
-								const tag = el("div", "ff-tbl-thumb-tag", String(a.type) === "audio" ? "♪" : "▶");
-								tag.title = "点开播放";
-								tag.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: a }); });
-								td2.append(tag);
+								const td2 = el("td", "ff-tbl-thumb-cell");
+								const a = gsU && gsU.asset;
+								if (a && a.src) {
+									const url = "/filmflow/assets?action=file&root=" + encodeURIComponent(n.root || (current() && current().root) || "") + "&p=" + encodeURIComponent(a.src);
+									if (String(a.type) === "image") {
+										const im = el("img", "ff-tbl-thumb-img");
+										im.src = url;
+										im.title = "点开看大图";
+										im.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: a }); });
+										td2.append(im);
+									} else {
+										const tag = el("div", "ff-tbl-thumb-tag", String(a.type) === "audio" ? "♪" : "▸");
+										tag.title = "点开播放";
+										tag.addEventListener("click", (ev) => { ev.stopPropagation(); openViewer({ root: n.root, item: a }); });
+										td2.append(tag);
+									}
+								}
+								tr.append(td2);
 							}
 						}
-						tr.append(td2);
-					}
-					if (editable) {
-						const td = el("td", "ff-tbl-op", "✕");
-						td.title = "删掉这一行";
-						td.addEventListener("click", (ev) => {
-							ev.stopPropagation();
-							const cells = [...tr.children].map((x) => x.textContent).slice(0, cols.length);
-							if (!confirm("删掉这一行？")) return;
-							void tableDelRow(n, cells);
-						});
-						tr.append(td);
-					}
 					/*
 					 * 行详情（点镜号展开）：显示/编辑这一行汇总出来的提示词。
 					 * 用户问「最后汇总出来的提示词需不需要显示出来」—— 要：生成结果不对时，
@@ -1781,14 +2027,18 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					if (genRows) {
 						const no = String((row && row.no) != null ? row.no : "").trim();
 						const g2 = genRows[no] || null;
+						const uidRow = String((g2 && g2.unit) || "");
+						const uRow = uidRow ? unitMap.get(uidRow) : null;
+						const mergedRow = !!(uRow && (uRow.covers || []).length >= 2);
 						const detail = el("tr", "ff-tbl-detail");
 						detail.style.display = "none";
 						const dtd = el("td");
-						dtd.colSpan = Math.max(1, cols.length) + (editable ? 1 : 0) + 2;
+						dtd.colSpan = Math.max(1, cols.length) + ((editable || genRows) ? 1 : 0) + (genRows ? 1 : 0);
 						const box = el("div", "ff-tbl-detail-box");
-						const lab = el("div", "ff-tbl-detail-lab", "提示词（由这一行汇总；改了就以改的为准）");
+						const lab = el("div", "ff-tbl-detail-lab", mergedRow ? ("最终提示词（整组 " + uidRow + " 共用 · 只读；要改请点上面参数卡里的「保存提示词」)") : "提示词（由这一行汇总；改了就以改的为准）");
 						const ta = el("textarea", "ff-tbl-detail-ta");
-						ta.value = String((g2 && g2.prompt) || promptOfRow(row) || "");
+						ta.value = mergedRow ? (String(uRow.prompt || "") || composeUnitText(uRow.covers || [], rowByNo)) : String((g2 && g2.prompt) || promptOfRow(row) || "");
+						ta.readOnly = mergedRow; /* 并组的行：提示词是整组共用的，别在这里单改 */
 						ta.rows = 4;
 						ta.addEventListener("click", (ev) => ev.stopPropagation());
 						const bar = el("div", "ff-tbl-detail-bar");
@@ -1800,17 +2050,25 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 								showNote("提示词已保存", "ok");
 							} catch (e) { showNote("保存失败：" + String((e && e.message) || e)); }
 						});
-						const bGen = el("div", "ff-btn p", "用这段生成");
-						bGen.addEventListener("click", async (ev) => {
+						/*
+						 * 这里**不再放「用这段生成」**（2026-11-04）。
+						 * 用户点「保存提示词」，紧挨着的生成按钮被误触，直接花了一次钱。
+						 * 生成只留表格里那个 ▶：一个入口，一个动作。
+						 */
+						/* 「删除这一行」放在这里（表格之外的最后一项），表格里不再有 ✕ 那一列 */
+						const bDel = el("div", "ff-btn", "删除这一行");
+						bDel.title = "从分镜表里删掉这一行";
+						bDel.addEventListener("click", (ev) => {
 							ev.stopPropagation();
-							try {
-								await post("/filmflow/gen", { root: n.root || (current() && current().root) || "", action: "gen", no, prompt: ta.value, type: "video" });
-								showNote("已提交：镜" + no, "ok");
-								SIG.tree = "";
-								await load();
-							} catch (e) { showNote("没生成：" + String((e && e.message) || e)); }
+							if (!editable) return;
+							if (!confirm("删掉这一行？")) return;
+							const cells = [...tr.children].map((x) => x.textContent).slice(0, cols.length);
+							void tableDelRow(n, cells);
 						});
-						bar.append(bSave, bGen);
+						const bClose = el("div", "ff-btn", "收起");
+						bClose.addEventListener("click", (ev) => { ev.stopPropagation(); detail.style.display = "none"; });
+						if (mergedRow) bSave.style.display = "none";
+						bar.append(bSave, bDel, bClose);
 						box.append(lab, ta, bar);
 						dtd.append(box);
 						detail.append(dtd);
@@ -1822,7 +2080,14 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 								noCell.title = "点一下看/改这一行的提示词";
 								noCell.addEventListener("click", (ev) => {
 										ev.stopPropagation();
-										detail.style.display = detail.style.display === "none" ? "" : "none";
+										const opening = detail.style.display === "none";
+										detail.style.display = opening ? "" : "none";
+										/* 详情行插在组里：竖跨格的 rowSpan 要跟着加/减，否则整张表从这一行起错位 */
+										if (uU && spanCells.has(String(uU.id))) {
+											for (const cell of spanCells.get(String(uU.id))) {
+												cell.rowSpan = Math.max(1, (cell.rowSpan || 1) + (opening ? 1 : -1));
+											}
+										}
 								});
 						}
 					}
@@ -1858,7 +2123,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				 * 2026-11-03 用户：「改成默认十行，鼠标放上面可以滚动，左键点击一下就全展开」
 				 */
 				const FOLD_ROWS = 10;
-				const rowsAll = [...tbody.querySelectorAll("tr")];
+				const rowsAll = [...tbody.querySelectorAll("tr")].filter((tr) => !tr.classList.contains("ff-tbl-detail"));
 				if (rowsAll.length > FOLD_ROWS) {
 					bd.className += " tbl-fold";
 					/*
@@ -1866,26 +2131,40 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					 * 画布 world 上有 scale 变换，rect 量到的是缩放后的像素 ——
 					 * 缩到 0.3 倍时「10 行」会被算成 3 行高（用户 2026-11-03 实测：操作几次后变默认三行）。
 					 */
+					let folded = false;
 					const foldH = () => {
+						/* 已经展开就别量了 */
+						if (bd.className.includes("tbl-open")) return true;
 						const theadEl = table.querySelector("thead");
 						let h = theadEl ? theadEl.offsetHeight : 0;
 						let measured = 0;
-						for (let i = 0; i < FOLD_ROWS && i < rowsAll.length; i++) {
+						const need = Math.min(FOLD_ROWS, rowsAll.length);
+						for (let i = 0; i < need; i++) {
 							const rh = rowsAll[i].offsetHeight || 0;
 							if (rh > 0) { h += rh; measured++; }
 						}
-						/* 没量全就别写高度（否则会缩成两三行） */
-						if (measured < Math.min(FOLD_ROWS, rowsAll.length)) return;
+						/* 没量全就别写高度（否则会缩成两三行）—— 等它可见了再量 */
+						if (measured < need) return false;
 						bd.style.maxHeight = Math.ceil(h + 2) + "px";
 						bd.style.overflowY = "auto";
 						bd.style.overflowX = "visible";
+						folded = true;
+						return true;
 					};
-					foldH();
+					/*
+					 * 量不到就重试 —— 节点刚渲染时可能被折叠着、窗口在后台、字体还没稳。
+					 * 只试三次就放弃的结果是整张表一直展开着（用户 2026-11-04 报的"有时候收不起来"）。
+					 */
+					const tryFold = (delays) => {
+						if (folded) return;
+						if (foldH()) return;
+						if (!delays.length) return;
+						setTimeout(() => tryFold(delays.slice(1)), delays[0]);
+					};
 					bd.title = "共 " + rowsAll.length + " 行 · 点一下全展开；在这里滚轮可以翻看";
-					/* 字体/换行可能晚一点稳定：再量两次（不靠 rAF，被遮住的窗口 rAF 不跑） */
-					setTimeout(foldH, 60);
-					setTimeout(foldH, 400);
-					setTimeout(foldH, 1200);
+					tryFold([60, 400, 1200, 2400, 4000]);
+					/* 兜底：鼠标移到表上还没折起来 → 这时一定可见，再量一次 */
+					bd.addEventListener("pointerenter", () => { if (!folded) foldH(); });
 					bd.addEventListener("click", (ev) => {
 						ev.stopPropagation();
 						if (bd.className.includes("tbl-open")) {
@@ -3522,8 +3801,10 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				try {
 					S = await fetchState();
 					draw();
+					return true;
 				} catch (err) {
 					showNote("读不到状态：" + String((err && err.message) || err), "warn");
+					return false;
 				}
 			}
 
@@ -3531,7 +3812,37 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			// 回项目菜单：这边的画布只是"里层"，导航交给外层的菜单面板
 			btnBack.addEventListener("click", () => { if (onBack) onBack(); });
 			btnFit.addEventListener("click", () => fit());
-			btnReload.addEventListener("click", () => { SIG.tree = ""; load(); });
+			/*
+			 * 刷新（2026-11-04 用户「点了没反应」）：
+			 * 原来只做 `SIG.tree=''; load()` —— 请求确实发了、DOM 也重建了，
+			 * 但画布本来每 ~2 秒就自动轮询一次，数据早就是新的；重建出来的画面一模一样，
+			 * 也没任何提示 ⇒ 看起来像死键。
+			 * 现在：按钮就地变「刷新中…」→「已刷新」（失败「刷新失败」），
+			 * 同时把撤销/重做状态也刷新；按住 Shift 点 = 顺便重新适配视图。
+			 */
+			btnReload.title = "重新读一次状态（Shift 点 = 顺便重新适配视图）";
+			btnReload.addEventListener("click", async (ev) => {
+				if (btnReload.dataset.busy === "1") return;
+				btnReload.dataset.busy = "1";
+				btnReload.className = "ff-btn busy";
+				btnReload.textContent = "刷新中…";
+				const t0 = Date.now();
+				SIG.tree = "";
+				let ok = false;
+				try { ok = await load(); } catch { ok = false; }
+				try { await refreshHist(); } catch { /* 忽略 */ }
+				if (ok && ev && ev.shiftKey) { try { fit(); } catch { /* 忽略 */ } }
+				/* 后端 50ms 就回来时，"刷新中…"一闪而过，反而更像没反应 —— 至少留 250ms */
+				const used = Date.now() - t0;
+				if (used < 250) await new Promise((r) => setTimeout(r, 250 - used));
+				btnReload.className = "ff-btn" + (ok ? " ok" : " bad");
+				btnReload.textContent = ok ? "已刷新" : "刷新失败";
+				setTimeout(() => {
+					btnReload.className = "ff-btn";
+					btnReload.textContent = "刷新";
+					delete btnReload.dataset.busy;
+				}, ok ? 1500 : 2500);
+			});
 			btnUndo.addEventListener("click", () => { runStructure({ type: "undo" }); });
 			btnClose.addEventListener("click", () => { card.className = "ff-card"; SEL = null; });
 			btnSave.addEventListener("click", () => { save(); });
