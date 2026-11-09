@@ -889,7 +889,15 @@ function placementIssue(stages, templates, tplId, at, selfTitle) {
       || identityOfTitle(loc.node && loc.node.title))
     : null;
   const ip = checkIdentityPlacement(selfId, parentId, !!loc, loc ? String(loc.node?.title || '') : '');
-  if (!ip.ok) return { ok: false, error: ip.error + (ip.hint ? '。' + ip.hint : '') };
+  /*
+   * 例外（2026-11-05 D39）：子模板 `usableUnder` 显式点名了这个父模板 → 跳过身份层。
+   * 否则「图片节点」这类**没有身份**的节点永远挂不到「人物·单人」下面。
+   */
+  const declaredUnderTpl = Array.isArray(tpl?.usableUnder) ? tpl.usableUnder.map(String) : [];
+  const parentTplId = loc ? String(loc.node?.template || '') : '';
+  if (!(parentTplId && declaredUnderTpl.includes(parentTplId))) {
+    if (!ip.ok) return { ok: false, error: ip.error + (ip.hint ? '。' + ip.hint : '') };
+  }
 
   /* ④ 下位白名单（R57）：父模板声明了"只收谁"，菜单和落盘读同一份 */
   const allowed = loc
@@ -3097,6 +3105,14 @@ function structureOp(root, op) {
     const tpl = ph.tpl;
     const tplRole = ph.tplRole;
     const loc = ph.loc;
+    /*
+     * 一个主体只允许一个图片节点（用户 2026-11-05：「一般直接给一张三视图，所以不允许多个图片节点」）。
+     * 不同装束/年龄 = 另一个主体节点，各自挂自己的图片节点。
+     */
+    if (String(tplId) === 'media-image' && loc && loc.node) {
+      const has = ((loc.node.children || []).some((c) => String(c && c.template) === 'media-image'));
+      if (has) throw new Error('「' + String(loc.node.title || '') + '」下面已经有一个图片节点了：一个主体只挂一个（三视图放一张）；不同装束/年龄请另建主体节点');
+    }
 
     // 标题：显式给 > 模板默认标题
     /*
@@ -4065,6 +4081,10 @@ function buildStage(root, raw, path, dp, parentGroup, parentRole) {
     kind: String(raw?.kind || ''),
     /** 媒体节点（kind='media'）的生成配置：type/model/prompt/... （不含 latest，那是运行时补的） */
     media: raw && raw.media ? { ...raw.media } : null,
+    /** 图片节点兼容器（D39）：节点里已有的图（上传/生成都在这） */
+    mediaImages: isImageNode({ kind: String(raw?.kind || ''), template: String(raw?.template || tplId || '') })
+      ? mediaNodeImages(root, String(raw?.key || '')).map((im) => ({ id: String(im.id || ''), src: String(im.src || ''), by: String(im.by || ''), at: String(im.at || '') }))
+      : [],
     /** 这个节点的条目怎么显示：'title'=只列名字（人物这种）/ 空=名字+正文 */
     items: String(raw?.items || ''),
     /** 参考资料节点读到的文件清单（refs glob；不建子节点，只给人看/给 agent 读） */
@@ -4517,13 +4537,17 @@ const REF_KIND_DESC = {
  * 编号规则（设计文档 §5）：**作用域 = 本单元**，按元素在本单元的首次出场顺序分配；
  * 一个元素多张图就连号。agent 不写编号，编号永远由这里算 —— 换图不会让任何提示词失效。
  */
-function refsBlock(rows, refs) {
-  const list = (refs || []).filter((el) => el && el.state !== 'skip' && (el.images || []).length);
-  if (!list.length) return { duties: [], relations: [], images: [] };
+function refsBlock(rows, refs, materials) {
+  const list = (refs || []).filter((el) => el && el.state !== 'skip' && !el.off && (el.images || []).length);
+  const extras = (materials || []).filter((m) => m && m.image);
+  if (!list.length && !extras.length) return { duties: [], relations: [], images: [] };
   const order = [];
   /*
-   * 编号顺序 = 元素在本单元的**首次出场顺序**（官方：按人物首次出场顺序上传参考素材）。
-   * 同一镜里出现多个时按它们在文字里的先后来排 —— 不是按元素库里的顺序。
+   * 编号顺序（2026-11-06 校准，照 sd25-pe「按类型分组」）：
+   *   **人物 → 道具 → 场景 → 画风 → 用户手加素材**，同类型内按本单元**首次出场顺序**。
+   *   skill 的规范示例里编号是连续的（人物@1~2、道具@3~4、场景@5~6），
+   *   说明"职责段按类型分组"和"N 怎么排"是同一件事 —— 分开写会让 agent 自己数错。
+   *   画风是我们加的类型：全片口径，排在场景之后、用户素材之前，别抢 @图片1。
    */
   const posOf = (text, el) => {
     const body = refNameKey(text);
@@ -4543,6 +4567,13 @@ function refsBlock(rows, refs) {
     for (const x of hits) if (!order.includes(x.el)) order.push(x.el);
   }
   for (const el of list) if (!order.includes(el)) order.push(el);
+  /* 组内保持首次出场顺序（sort 稳定），组间按类型：人物 0 → 道具 1 → 场景 2 → 画风 3 → 其它 4 */
+  const RANK = { person: 0, prop: 1, scene: 2, look: 3 };
+  const rankOf = (el) => {
+    const k = String((el && el.kind) || "");
+    return RANK[k] === undefined ? 4 : RANK[k];
+  };
+  order.sort((a, b) => rankOf(a) - rankOf(b));
   let n = 0;
   const numbered = order.map((el) => {
     const from = n + 1;
@@ -4553,15 +4584,28 @@ function refsBlock(rows, refs) {
   const relations = [];
   const images = [];
   for (const x of numbered) {
-    const desc = REF_KIND_DESC[String(x.el.kind || 'person')] || REF_KIND_DESC.person;
+    /*
+     * 只做**名字 ↔ 图片**的映射，不再按"种类"断言这张图该管什么
+     * （用户 2026-11-05：「元素之间在数据上没有种类之分，只有绑定的素材的区别」）。
+     * 具体这张参考图承担什么，由用户自己在事件脚本/提示词里写。
+     */
     for (const p of x.imgs) images.push(String(p));
     if (x.from === x.to) {
-      duties.push('@图片' + x.from + '用于' + x.el.name + '的' + desc + (String(x.el.kind) === 'scene' ? '，不采用图中人物。' : '，不采用图片背景。'));
+      duties.push('@图片' + x.from + '用于「' + x.el.name + '」。');
       relations.push(x.el.name + '对应@图片' + x.from + '。');
     } else {
-      duties.push('@图片' + x.from + '~@图片' + x.to + '共同定义' + x.el.name + '（不同视角或状态），不生成多个副本。');
+      duties.push('@图片' + x.from + '~@图片' + x.to + '共同定义「' + x.el.name + '」（不同视角或状态），不生成多个副本。');
       relations.push(x.el.name + '对应@图片' + x.from + '~@图片' + x.to + '。');
     }
+  }
+  /*
+   * 用户手动丢进来的素材（没有元素、没有语义）：编号接在元素后面，
+   * **只说明它是参考图**，用途由用户自己在事件脚本里写（用户 2026-11-05）。
+   */
+  for (const m of extras) {
+    n += 1;
+    images.push(String(m.image));
+    duties.push('@图片' + n + '（' + String(m.label || ('素材' + n)) + '）是用户指定的参考素材，用途以事件脚本为准。');
   }
   /* 同一人物多个变体（唐老板 / 唐老板·年轻版）：说清关系，别让模型互相换脸 */
   const byBase = new Map();
@@ -4587,9 +4631,9 @@ function stripRefSections(text) {
 }
 
 /** 生成前用当前绑定重算参考段并拼到最前面。 */
-function withFreshRefs(prompt, rows, refs) {
+function withFreshRefs(prompt, rows, refs, materials) {
   const base = stripRefSections(prompt);
-  const b = refsBlock(rows, refs);
+  const b = refsBlock(rows, refs, materials);
   const head = [];
   if (b.duties.length) head.push('【参考素材职责】', ...b.duties);
   if (b.relations.length) head.push('【主体与关系】', ...b.relations);
@@ -4633,7 +4677,7 @@ function dialogueOfUnit(cell, speakers) {
  *   · 不自己加画质包/稳定包/水印/不要字幕这类通用负向约束（sd25-pe 原则 8）；
  *   · 【参考素材职责】【未采用素材】需要参考素材槽才有内容，暂不产出（没有素材就不编）。
  */
-function composeUnitPrompt(rows, refs) {
+function composeUnitPrompt(rows, refs, materials) {
   const beats = [];
   const notes = [];
   const speakers = [];
@@ -4682,7 +4726,7 @@ function composeUnitPrompt(rows, refs) {
   parts.push(...beats);
   if (keep.length) { parts.push('【保持一致】'); parts.push(keep.join('；') + '。'); }
   /* 参考素材段按当前绑定算，拼到最前面（没有绑定就什么都不加） */
-  return withFreshRefs(parts.join('\n'), rows, refs);
+  return withFreshRefs(parts.join('\n'), rows, refs, materials);
 }
 
 /**
@@ -4723,22 +4767,80 @@ function lintUnitPrompt(raw) {
 }
 
 /** 一个单元当前的状态（任务在跑吗 / 有没有成片 / 提示词是什么）。 */
+/**
+ * 一组镜号对应的画风文字（分镜表「画风」列，去重压一行）。空 = 这几行没写画风。
+ * 用户 2026-11-06：画风是**每个单元都要带**的东西，不能指望提示词里写死。
+ */
+function lookTextForShots(root, shots) {
+  try {
+    const shape = storyboardShape();
+    const abs = join(root, ...storyboardSrc(root).split('/'));
+    if (!shape || !existsSync(abs)) return '';
+    const data = parseTable(readFileSync(abs, 'utf8'), shape);
+    if (!data) return '';
+    const want = (Array.isArray(shots) ? shots : []).map(String);
+    const seen = [];
+    for (const g of data.groups || []) {
+      for (const r of g.rows || []) {
+        if (!want.includes(String(r.no || ''))) continue;
+        const v = String(r.look || '').replace(/\s+/g, ' ').trim();
+        if (v && !seen.includes(v)) seen.push(v);
+      }
+    }
+    return seen.join(' / ');
+  } catch { return ''; }
+}
+
+/**
+ * 把【画风】段拼进一段最终提示词（用户 2026-11-06：「有该元素的地方都要同步」）。
+ * - 已有【画风】段 → 只换那一段的内容，别的一个字不动
+ * - 没有 → 补在最前面（和 composeUnitPrompt 的顺序一致）
+ * @param text - 原提示词（可能是 agent 写的、人改的、或程序合成的）
+ * @param look - 画风文字（空 = 不动）
+ */
+function injectLookSection(text, look) {
+  const want = String(look || '').replace(/\s+/g, ' ').trim();
+  if (!want) return String(text || '');
+  const src = String(text || '');
+  const re = /【画风】\s*([\s\S]*?)(?=\n【|$)/;
+  if (re.test(src)) {
+    return src.replace(re, '【画风】\n' + want).replace(/【画风】\s*\n\s*\n/g, '【画风】\n' + want + '\n\n');
+  }
+  return '【画风】\n' + want + '\n\n' + src;
+}
+
 function unitStateOf(root, u, jobs, assets) {
   const key = unitKeyOf(u.id);
   const gen = readGen(root);
   const rec = (gen.unitRows || {})[String(u.id)] || null;
   const job = (jobs || []).find((j) => String(j.key) === key) || null;
   const list = (assets || []).filter((a) => String(a.node) === key);
+  /*
+   * 采用制（2026-11-05）：一个单元可能有好几条候选，成片用哪条必须是**人标出来的**，
+   * 不能靠"最新一条"隐式决定。没标过才退回最新一条（老数据没有 state 字段）。
+   */
+  const accepted = list.find((a) => String(a.state || '') === 'accepted') || null;
   let latest = null;
   for (const a of list) if (!latest || String(a.at) > String(latest.at)) latest = a;
-  const status = job ? String(job.status) : (latest ? 'done' : 'idle');
+  const shown = accepted || latest;
+  const brief = (a) => ({ id: a.id, src: a.src, type: a.type, at: a.at, model: String(a.model || ''), state: String(a.state || 'candidate') });
+  const cands = list.filter((a) => String(a.state || '') !== 'rejected').sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 8);
+  const status = job ? String(job.status) : (shown ? 'done' : 'idle');
   return {
     key,
     status,
     progress: job ? String(job.progress || '') : '',
     error: job ? String(job.error || '') : '',
-    asset: latest ? { id: latest.id, src: latest.src, type: latest.type, at: latest.at, model: String(latest.model || '') } : null,
-    prompt: rec ? String(rec.prompt || '') : '',
+    asset: shown ? brief(shown) : null,
+    acceptedId: accepted ? String(accepted.id) : '',
+    assets: cands.map(brief),
+    /* 存过的提示词也要带画风：画风改了它就该跟着变（用户 2026-11-06） */
+    prompt: (() => {
+      const raw = rec ? String(rec.prompt || '') : '';
+      const lk = lookTextForShots(root, u.covers || []);
+      if (!raw) return '';
+      return injectLookSection(raw, lk);
+    })(),
     promptSource: rec ? String(rec.source || '') : '',
     model: rec ? String(rec.model || '') : '',
     params: rec && rec.params && typeof rec.params === 'object' ? rec.params : {},
@@ -4785,19 +4887,182 @@ const UNIT_COMFORTABLE = 10;
  */
 const REFS_FILE = join('.film', 'refs.json');
 const MATERIAL_DIR = '素材';
+/**
+ * 跨片引用时复制进来的落点（2026-11-05）。
+ * 为什么不直接引用外片路径：绑定存的是本片相对路径，搬片/打包时外片就断了。
+ */
+const REF_COPY_DIR = '.film/assets/refs';
+
+/* ══ 连接线（2026-11-05 D39）════════════════════════════════════════════
+ *
+ * 用户：主体节点定义"有谁"，**图片节点兼做这个主体的图集容器**，它自动连到表格里
+ * 所有含该元素的生成单元（画成"连接线"，常显、不进表格、不影响布局）；表格里的
+ * 选图/换图照旧能点，但内部写回图片节点 —— 所以 **真相在图片节点**，`binding` 只是派生缓存。
+ */
+const MEDIA_NODE_FILE = join('.film', 'media.json');
+
+function readMediaNodes(root) {
+  const p = join(root, MEDIA_NODE_FILE);
+  if (!existsSync(p)) return {};
+  try {
+    const j = JSON.parse(readFileSync(p, 'utf8'));
+    return j && typeof j === 'object' ? j : {};
+  } catch { return {}; }
+}
+
+function writeMediaNodes(root, data) {
+  const p = join(root, MEDIA_NODE_FILE);
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  writeFileSync(tmp, JSON.stringify(data || {}, null, 2) + '\n', 'utf8');
+  writeFileSync(p, readFileSync(tmp));
+  try { writeFileSync(tmp, ''); } catch { /* 忽略 */ }
+}
+
+/** 树上所有节点：key → {key,title,kind,template,parentKey}。 */
+function nodeIndexOf(root) {
+  const map = new Map();
+  try {
+    const { decl } = readDecl(join(root, DECL));
+    const walk = (list, parentKey) => {
+      for (const n of list || []) {
+        if (!n || !n.key) continue;
+        map.set(String(n.key), {
+          key: String(n.key),
+          title: String(n.title || ''),
+          kind: String(n.kind || ''),
+          template: String(n.template || ''),
+          parentKey: String(parentKey || ''),
+        });
+        walk(n.children, n.key);
+      }
+    };
+    walk(decl && decl.stages, '');
+  } catch { /* 读不到就当空树 */ }
+  return map;
+}
+
+const isImageNode = (v) => v && v.kind === 'media' && (v.template === 'media-image' || v.template === '');
+
+/** 元素 → 主体节点 key：先看 nodeId，再按标题（= 元素名）找。 */
+function elementNodeKey(root, el, idx) {
+  const m = idx || nodeIndexOf(root);
+  const id = String((el && el.nodeId) || '');
+  if (id && m.has(id)) return id;
+  const name = String((el && el.name) || '').trim();
+  if (!name) return '';
+  for (const [k, v] of m) if (String(v.title || '').trim() === name) return k;
+  return '';
+}
+
+/** 某个主体节点下挂的图片节点 key（用户：一个主体只允许一个图片节点，多余的不认）。 */
+/**
+ * 删掉一个元素在画布上的节点（用户 2026-11-06 定：删元素 → 节点跟着走）。
+ * 顺序：先删它下面的图片节点，再删主体节点（force，避免被依赖挡住）。
+ * @returns {number} 实际删掉的节点数
+ */
+function dropElementNodes(root, el, why) {
+  let n = 0;
+  try {
+    const idx = nodeIndexOf(root);
+    const subj = elementNodeKey(root, el, idx);
+    if (!subj) return 0;
+    for (const kid of imageNodeKeysOf(idx, subj)) {
+      try { structureOp(root, { type: 'delete', key: kid, force: true, by: 'user', why: why || '元素已删除' }); n += 1; } catch { /* 忽略 */ }
+    }
+    try { structureOp(root, { type: 'delete', key: subj, force: true, by: 'user', why: why || '元素已删除' }); n += 1; } catch { /* 忽略 */ }
+  } catch { /* 忽略 */ }
+  return n;
+}
+
+function imageNodeKeysOf(idx, subjectKey) {
+  const out = [];
+  for (const [k, v] of idx) if (v.parentKey === subjectKey && isImageNode(v)) out.push(k);
+  return out;
+}
+
+function mediaNodeImages(root, key) {
+  const all = readMediaNodes(root);
+  const rec = all[String(key)] || {};
+  return Array.isArray(rec.images) ? rec.images.filter((x) => x && x.src) : [];
+}
+
+/**
+ * 用图片节点重算元素绑定（真相反转）。
+ * 规则：元素能对上主体节点、且该主体下的图片节点有图 → 用节点里的图覆盖 binding；
+ * 对不上或没图 → **不动老绑定**（保证旧数据与"只存在表格里"的用法不炸）。
+ * @returns {number} 改动数
+ */
+function syncRefsFromNodes(root) {
+  const refs = readRefs(root);
+  const idx = nodeIndexOf(root);
+  const all = readMediaNodes(root);
+  let changed = 0;
+  for (const el of refs.elements || []) {
+    const subj = elementNodeKey(root, el, idx);
+    if (!subj) continue;
+    if (String(el.nodeId || '') !== subj) { el.nodeId = subj; changed += 1; }
+    const imgs = [];
+    for (const nk of imageNodeKeysOf(idx, subj)) {
+      for (const im of (all[nk] && all[nk].images) || []) if (im && im.src) imgs.push(String(im.src));
+    }
+    if (!imgs.length) continue;
+    const cur = ((refs.binding || {})[String(el.id)] || {}).images || [];
+    if (cur.join('|') !== imgs.join('|')) {
+      refs.binding = refs.binding || {};
+      refs.binding[String(el.id)] = { images: imgs, at: new Date().toISOString() };
+      changed += 1;
+    }
+  }
+  if (changed) writeRefs(root, refs);
+  return changed;
+}
+
+/**
+ * 表格节点上的连线清单：每个"有图且被至少一个单元引用的主体"一条。
+ * 客户端据此画 连接线（图片节点 → 每个单元的素材格左缘）。
+ */
+function linkNodesOf(root, units) {
+  const out = [];
+  try {
+    const idx = nodeIndexOf(root);
+    const all = readMediaNodes(root);
+    const refs = readRefs(root);
+    for (const el of refs.elements || []) {
+      const subj = elementNodeKey(root, el, idx);
+      if (!subj) continue;
+      const keys = imageNodeKeysOf(idx, subj);
+      /* 连接线表达的是"这个单元用到这个主体"，**有没有图都要连**（用户 2026-11-05 第 4 条） */
+      const imgs = [];
+      for (const nk of keys) for (const im of (all[nk] && all[nk].images) || []) if (im && im.src) imgs.push(String(im.src));
+      const hitUnits = (units || [])
+        .filter((u) => (u.refs || []).some((r) => String(r.id) === String(el.id) && !r.off))
+        .map((u) => String(u.id));
+      if (!hitUnits.length) continue;
+      out.push({ nodeKey: keys[0], subjectKey: subj, elementId: String(el.id), name: String(el.name || ''), image: imgs[0], images: imgs, units: hitUnits });
+    }
+  } catch { /* 连线算不出来不影响画布 */ }
+  return out;
+}
 
 function readRefs(root) {
   const p = join(root, REFS_FILE);
-  if (!existsSync(p)) return { version: 1, elements: [], binding: {}, at: '' };
+  const empty = { version: 1, elements: [], binding: {}, materials: [], materialSeq: 0, at: '' };
+  if (!existsSync(p)) return empty;
   try {
     const j = JSON.parse(readFileSync(p, 'utf8'));
+    const materials = Array.isArray(j && j.materials) ? j.materials : [];
     return {
       version: 1,
       elements: Array.isArray(j && j.elements) ? j.elements : [],
       binding: j && typeof j.binding === 'object' && j.binding ? j.binding : {},
+      materials,
+      materialSeq: Number.isFinite(Number(j && j.materialSeq)) ? Number(j.materialSeq) : materials.length,
+      /* 单元级"不用某主体"（D39）：{u01: ['e3']} */
+      unitOptOut: j && typeof j.unitOptOut === 'object' && j.unitOptOut ? j.unitOptOut : {},
       at: String((j && j.at) || ''),
     };
-  } catch { return { version: 1, elements: [], binding: {}, at: '' }; }
+  } catch { return empty; }
 }
 
 function writeRefs(root, data) {
@@ -4807,6 +5072,11 @@ function writeRefs(root, data) {
     version: 1,
     elements: Array.isArray(data.elements) ? data.elements : [],
     binding: data.binding && typeof data.binding === 'object' ? data.binding : {},
+    /* 用户手加的素材（素材1、素材2…）：编号全片唯一，跟图走（2026-11-05） */
+    materials: Array.isArray(data.materials) ? data.materials : [],
+    materialSeq: Number.isFinite(Number(data.materialSeq)) ? Number(data.materialSeq) : (Array.isArray(data.materials) ? data.materials.length : 0),
+    /* 单元级"不用某主体"（D39） */
+    unitOptOut: data.unitOptOut && typeof data.unitOptOut === 'object' ? data.unitOptOut : {},
     at: new Date().toISOString(),
   };
   const tmp = p + '.tmp';
@@ -4835,6 +5105,57 @@ function refHits(text, el) {
  * 为什么要它：模型/agent 没分析过这张表时，元素库是空的，画布上连浅字提示都没有，用户不知道要绑什么。
  * @returns {number} 新播种的元素个数（库里已经有元素就不动）
  */
+/** 画风文字取一个短名做节点标题（取第一段，最多 12 字）。 */
+function lookShortName(text) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  const head = s.split(/[，,。；;｜|]/)[0].trim() || s;
+  return head.length > 12 ? head.slice(0, 12) : head;
+}
+
+/**
+ * 表里有「画风」文字、库里还没有对应的画风元素 ⇒ 自动补（2026-11-06 用户问「画风节点自动生成吗」）。
+ * 判据：这段画风覆盖的镜号里，只要有任何一个已经被某个 look 元素占着，就不新建（它是那套画风的延伸）。
+ * @returns {number} 新建的个数
+ */
+function seedLookElements(root) {
+  let made = 0;
+  try {
+    const shape = storyboardShape();
+    const abs = join(root, ...storyboardSrc(root).split('/'));
+    if (!shape || !existsSync(abs)) return 0;
+    const data = parseTable(readFileSync(abs, 'utf8'), shape);
+    if (!data) return 0;
+    const refs = readRefs(root);
+    const looks = (refs.elements || []).filter((x) => String(x.kind || '') === 'look');
+    const covered = new Set();
+    for (const el of looks) for (const no of (el.shots || [])) covered.add(String(no));
+    const groups = new Map();   /* 画风文字 → 镜号[] */
+    for (const g of data.groups || []) {
+      for (const r of g.rows || []) {
+        const v = String(r.look || '').replace(/\s+/g, ' ').trim();
+        if (!v) continue;
+        const no = String(r.no || '');
+        if (!no) continue;
+        if (!groups.has(v)) groups.set(v, []);
+        groups.get(v).push(no);
+      }
+    }
+    const add = [];
+    for (const [text, shots] of groups) {
+      if (shots.some((no) => covered.has(no))) continue;
+      const name = lookShortName(text);
+      if (!name) continue;
+      add.push({ name, kind: 'look', shots: [...new Set(shots)], seeded: true });
+      for (const no of shots) covered.add(no);
+    }
+    if (add.length) {
+      saveRefElements(root, add);
+      made = add.length;
+    }
+  } catch { /* 忽略 */ }
+  return made;
+}
+
 function seedRefElements(root, rows) {
   const refs = readRefs(root);
   if ((refs.elements || []).length) return 0;
@@ -4887,13 +5208,28 @@ function refsForUnit(root, unit, rows) {
     if (shots.length) return shots.some((no) => covers.includes(no));
     return refHits(text, el);
   };
+  /* 单元级 opt-out（D39）：这个单元明确不要某个主体的参考图 */
+  const optOut = ((refs.unitOptOut || {})[String((unit && unit.id) || '')] || []).map(String);
+  /*
+   * ★ 编号顺序（2026-11-06，照 sd25-pe 的「类型分组」）：
+   *   人物 → 道具 → 场景 → 画风 → 其它。
+   *   同类型内保持"首次出场顺序"（元素入库顺序，稳定；换图/新绑都不改编号）。
+   *   画风是我们自己加的类型：它是全片口径，排在人/物/景之后，别抢 @图片1。
+   */
+  const KIND_RANK = { person: 0, prop: 1, scene: 2, look: 3 };
+  const rankOf = (k) => (KIND_RANK[String(k || '')] === undefined ? 4 : KIND_RANK[String(k || '')]);
   return refs.elements
     .filter(hit)
+    .slice()
+    .sort((a, b) => rankOf(a.kind) - rankOf(b.kind))
     .map((el) => ({
       id: String(el.id || ''),
       name: String(el.name || ''),
       base: String(el.base || el.name || ''),
+      nodeId: String(el.nodeId || ''),
       kind: String(el.kind || 'person'),
+      /* 这个单元明确不用它（D39 opt-out）：界面上画一道删除线，可恢复 */
+      off: optOut.includes(String(el.id || '')),
       aliases: Array.isArray(el.aliases) ? el.aliases.map(String) : [],
       state: String(el.state || 'pending'),
       images: ((refs.binding || {})[String(el.id || '')] || {}).images || [],
@@ -4907,7 +5243,83 @@ function nextRefId(refs) {
   return 'e' + Date.now();
 }
 
-/** 元素种类白名单 */
+/* ══ 手加素材（2026-11-05 用户重新定义）══════════════════════════════════
+ *
+ * 用户原话：「元素本来就是为了 agent 批量处理素材而创造的一个东西，所以根本就不应该有
+ * 新建自定义元素这个事情……那个加号的作用就应该只有“添加素材”，添加了之后系统自动标注上
+ * “素材x”（其他生成单元里如果再添加相同素材那么标注也应该是相同的），具体这个素材是
+ * 干什么的由用户自己去提示词里写。」
+ *
+ * ⇒ 元素只由 agent 提；用户能加的是**素材**（图），编号全片唯一且跟图走（同一张图 → 同一个编号）。
+ *   素材**不带语义**（没有 kind、没有名字含义），提示词里由用户自己说明用途。
+ */
+
+/** 文件内容指纹：跨片复制后仍能认出"同一张图"。 */
+function hashOfFile(abs) {
+  try { return createHash('sha1').update(readFileSync(abs)).digest('hex').slice(0, 16); } catch { return ''; }
+}
+
+/** 这一组里用户加的素材（没限定镜号的素材 = 全片通用）。 */
+function materialsForUnit(root, unit) {
+  const refs = readRefs(root);
+  const covers = ((unit && unit.covers) || []).map(String);
+  return (refs.materials || [])
+    .filter((m) => m && m.image)
+    .filter((m) => {
+      const shots = Array.isArray(m.shots) ? m.shots.map(String) : [];
+      if (!shots.length) return true;
+      return shots.some((no) => covers.includes(no));
+    })
+    .sort((a, b) => Number(String(a.label || '').replace(/\D/g, '')) - Number(String(b.label || '').replace(/\D/g, '')))
+    .map((m) => ({ id: String(m.id || ''), label: String(m.label || ''), image: String(m.image), shots: (m.shots || []).map(String) }));
+}
+
+/**
+ * 把一张图挂到某些镜号上：内容相同的图**复用同一条素材**（编号不变），只把镜号并进去。
+ * @returns {{ok:boolean, material?:object, reused?:boolean, error?:string}}
+ */
+function attachMaterial(root, { image, shots }) {
+  const refs = readRefs(root);
+  refs.materials = Array.isArray(refs.materials) ? refs.materials : [];
+  if (!Number.isFinite(Number(refs.materialSeq))) refs.materialSeq = refs.materials.length;
+  const rel = String(image || '').replace(/\\/g, '/');
+  if (!rel) return { ok: false, error: '没有图' };
+  const hash = hashOfFile(join(root, ...rel.split('/')));
+  const want = (Array.isArray(shots) ? shots : []).map(String).filter(Boolean);
+  let m = (hash && refs.materials.find((x) => x.hash && String(x.hash) === hash))
+    || refs.materials.find((x) => String(x.image || '') === rel);
+  const reused = !!m;
+  if (m) {
+    m.shots = [...new Set([...(m.shots || []).map(String), ...want])];
+  } else {
+    refs.materialSeq = Number(refs.materialSeq) + 1;
+    m = {
+      id: 'm' + refs.materialSeq,
+      label: '素材' + refs.materialSeq,
+      image: rel,
+      hash,
+      shots: want,
+      at: new Date().toISOString(),
+    };
+    refs.materials.push(m);
+  }
+  writeRefs(root, refs);
+  return { ok: true, material: { id: m.id, label: m.label, image: m.image, shots: (m.shots || []).map(String) }, reused };
+}
+
+/** 从这些镜号上撤掉一条素材；没有镜号再用它就从库里删（编号不回收）。 */
+function detachMaterial(root, { id, shots }) {
+  const refs = readRefs(root);
+  const m = (refs.materials || []).find((x) => String(x.id) === String(id));
+  if (!m) return { ok: false, error: '没有这条素材：' + id };
+  const drop = (Array.isArray(shots) ? shots : []).map(String).filter(Boolean);
+  m.shots = (m.shots || []).map(String).filter((no) => !drop.includes(no));
+  if (!m.shots.length) refs.materials = (refs.materials || []).filter((x) => String(x.id) !== String(m.id));
+  writeRefs(root, refs);
+  return { ok: true, id: m.id, gone: !m.shots.length, label: String(m.label || '') };
+}
+
+/** 元素种类白名单（legacy：agents 还会传，但用户侧不再出现"种类"这个概念） */
 const REF_KINDS = ['person', 'scene', 'prop', 'look'];
 
 /** 元素出现于哪些单元（按分镜文字算，和 refsForUnit 同一口径） */
@@ -4989,6 +5401,26 @@ function refsPayload(root) {
       ...el,
       images: ((refs.binding || {})[String(el.id)] || {}).images || [],
       units: refElementUnits(root, el),
+    })),
+    /* 画布上图片节点里装的图（上传的"光杆图片"也在里面）：2026-11-06 用户问为什么列表里没有 */
+    mediaNodes: (() => {
+      try {
+        const idx = nodeIndexOf(root);
+        const all = readMediaNodes(root);
+        return Object.entries(all).map(([k, rec]) => ({
+          key: k,
+          title: (idx.get(k) && idx.get(k).title) || k,
+          images: ((rec && rec.images) || []).filter((im) => im && im.src).map((im) => ({ src: String(im.src), by: String(im.by || ''), at: String(im.at || '') })),
+        })).filter((x) => x.images.length);
+      } catch { return []; }
+    })(),
+    /* 用户手加的素材（无语义，编号全片唯一） */
+    materials: (refs.materials || []).map((m) => ({
+      id: String(m.id || ''),
+      label: String(m.label || ''),
+      image: String(m.image || ''),
+      shots: (m.shots || []).map(String),
+      at: String(m.at || ''),
     })),
   };
 }
@@ -5223,21 +5655,24 @@ function validateUnits(root, decl, units, model) {
   return { ok: errors.length === 0, errors, warnings, units: errors.length ? [] : norm, rows };
 }
 
-/** 这一行的生成状态（合并 generation.json + 运行中的任务 + 最新素材）。 */
+/** 这一行的生成状态（合并 generation.json + 运行中的任务 + 素材；采用优先于最新）。 */
 function genStateOf(root, no, jobs, assets) {
   const key = genKeyOf(no);
   const rec = readGen(root).rows[String(no)] || null;
   const job = (jobs || []).find((j) => String(j.key) === key) || null;
   const list = (assets || []).filter((a) => String(a.node) === key);
+  const accepted = list.find((a) => String(a.state || '') === 'accepted') || null;
   let latest = null;
   for (const a of list) if (!latest || String(a.at) > String(latest.at)) latest = a;
-  const status = job ? String(job.status) : (latest ? 'done' : 'idle');
+  const shown = accepted || latest;
+  const status = job ? String(job.status) : (shown ? 'done' : 'idle');
   return {
     key,
     status,
     progress: job ? String(job.progress || '') : '',
     error: job ? String(job.error || '') : '',
-    asset: latest ? { id: latest.id, src: latest.src, type: latest.type, at: latest.at, model: String(latest.model || '') } : null,
+    asset: shown ? { id: shown.id, src: shown.src, type: shown.type, at: shown.at, model: String(shown.model || ''), state: String(shown.state || 'candidate') } : null,
+    acceptedId: accepted ? String(accepted.id) : '',
     attempts: rec && Array.isArray(rec.attempts) ? rec.attempts.slice(-5) : [],
     prompt: rec ? String(rec.prompt || '') : '',
     model: rec ? String(rec.model || '') : '',
@@ -5248,7 +5683,295 @@ function genStateOf(root, no, jobs, assets) {
  * 给每张分镜表补上**行内生成状态**（表行 → 状态，按镜号绑）。
  * 画布上「生成 / 预览」两格就是读这个。
  */
+/**
+ * agent 提了主体（元素）→ 画布上把对应节点**全部生成好**，用户只需要填图（用户 2026-11-05 第 4 条）。
+ *
+ * 每个元素要做到：容器（人物/场景/道具，没有就建）→ 单主体节点（标题=元素名，没有就建）
+ * → 它的图片节点（没有就建；表格里已有的绑定图搬进去）。有了图片节点，连接线才会出现。
+ * @returns {number} 新建的节点数
+ */
+function ensureImageNodes(root) {
+  let made = 0;
+  const refs = readRefs(root);
+  const idx = nodeIndexOf(root);
+  const CONTAINER = { person: { tpl: 'character', title: '人物' }, scene: { tpl: 'scene', title: '场景' }, prop: { tpl: 'props', title: '道具' }, look: { tpl: 'look', title: '画风' } };
+  const ONE = { person: 'character-one', scene: 'scene-one', prop: 'prop-one', look: 'look-one' };
+  const findKey = (map, title) => {
+    for (const [k, v] of map) if (String(v.title || '').trim() === title) return k;
+    return '';
+  };
+  for (const el of refs.elements || []) {
+    /* 画风也是元素（2026-11-06 用户定）：容器 → 画风·单个 → 画风参考图 */
+    const kind = CONTAINER[String(el.kind || '')] ? String(el.kind) : 'person';
+    if (!kind) continue;
+    let subj = elementNodeKey(root, el, idx);
+    /* ① 没有单主体节点 → 先补容器，再补单主体 */
+    if (!subj) {
+      try {
+        let parentKey = findKey(idx, CONTAINER[kind].title);
+        if (!parentKey) {
+          const ch = structureOp(root, { type: 'add', template: CONTAINER[kind].tpl, title: CONTAINER[kind].title });
+          parentKey = ch && (ch.key || '');
+          if (parentKey) { idx.set(String(parentKey), { key: String(parentKey), title: CONTAINER[kind].title, kind: 'aggregate', template: CONTAINER[kind].tpl, parentKey: '' }); made += 1; }
+        }
+        if (parentKey) {
+          const ch2 = structureOp(root, { type: 'add', template: ONE[kind], at: parentKey, title: String(el.name || '') });
+          const k2 = ch2 && (ch2.key || '');
+          if (k2) { subj = String(k2); idx.set(subj, { key: subj, title: String(el.name || ''), kind: 'aggregate', template: ONE[kind], parentKey: String(parentKey) }); made += 1; }
+        }
+      } catch { /* 建不出来就跳过这个元素 */ }
+    }
+    if (!subj) continue;
+    /* ② 没有图片节点 → 建；把表格里已有的绑定图搬进去 */
+    if (!imageNodeKeysOf(idx, subj).length) {
+      try {
+        const ch3 = structureOp(root, { type: 'add', template: 'media-image', at: subj, title: String(el.name || '') + ' 参考图' });
+        const k3 = ch3 && (ch3.key || '');
+        if (!k3) continue;
+        const imgs = ((refs.binding || {})[String(el.id)] || {}).images || [];
+        const all = readMediaNodes(root);
+        all[String(k3)] = {
+          images: imgs.map((src, i) => ({ id: 'i' + (i + 1), src: String(src), by: 'legacy', at: new Date().toISOString() })),
+        };
+        writeMediaNodes(root, all);
+        idx.set(String(k3), { key: String(k3), title: String(el.name || '') + ' 参考图', kind: 'media', template: 'media-image', parentKey: subj });
+        made += 1;
+      } catch { /* 已有/规则拒绝 → 跳过 */ }
+    }
+  }
+  if (made) {
+    try {
+      /* 把 nodeId 落回去（agents 提的元素只需要名字，节点建好后身份就固定了） */
+      const fresh = readRefs(root);
+      const idx2 = nodeIndexOf(root);
+      for (const el of fresh.elements || []) {
+        const subj = elementNodeKey(root, el, idx2);
+        if (subj && String(el.nodeId || '') !== subj) el.nodeId = subj;
+      }
+      writeRefs(root, fresh);
+      syncRefsFromNodes(root);
+    } catch { /* 忽略 */ }
+    trace('[连接线] ' + root + ' 按元素自动建了 ' + made + ' 个节点（容器/单主体/图片节点）');
+  }
+  return made;
+}
+
+/** 分镜脚本节点的 shape（表头列定义）—— 画风列要按它解析/重写。 */
+function storyboardShape() {
+  try {
+    const list = readTemplates();
+    const tpl = (Array.isArray(list) ? list : []).find((x) => String(x.id) === 'storyboard');
+    return tpl && tpl.shape ? tpl.shape : null;
+  } catch { return null; }
+}
+
+/** 分镜脚本在项目里的相对路径（从节点 src 拿；拿不到就用约定路径）。 */
+function storyboardSrc(root) {
+  try {
+    const decl = readDecl(join(root, DECL)).decl;
+    const all = [];
+    const walk = (n) => { all.push(n); for (const c of n.children || []) walk(c); };
+    for (const s of decl.stages || []) walk(s);
+    const hit = all.find((n) => String(n.template || '') === 'storyboard' && String(n.src || '').trim());
+    if (hit) return String(hit.src).replace(/\\/g, '/');
+  } catch { /* 忽略 */ }
+  return '工艺/分镜脚本.md';
+}
+
+/**
+ * 一套画风当前的文字 = 它覆盖的那几行「画风」列（去重、压成一行）。
+ * 用户 2026-11-06 定：画风节点的正文跟表格画风列**同一份文字**，不另存文件。
+ */
+function lookTextOf(root, el) {
+  try {
+    const shape = storyboardShape();
+    const abs = join(root, ...storyboardSrc(root).split('/'));
+    if (!shape || !existsSync(abs)) return '';
+    const data = parseTable(readFileSync(abs, 'utf8'), shape);
+    if (!data) return '';
+    const shots = (Array.isArray(el && el.shots) ? el.shots : []).map(String);
+    const seen = [];
+    for (const g of data.groups || []) {
+      for (const r of g.rows || []) {
+        const no = String(r.no || '');
+        if (shots.length && !shots.includes(no)) continue;
+        const v = String(r.look || '').replace(/\s+/g, ' ').trim();
+        if (v && !seen.includes(v)) seen.push(v);
+      }
+    }
+    return seen.join(' / ');
+  } catch { return ''; }
+}
+
+/**
+ * 把一套画风的文字写回它覆盖的那几行的「画风」列（B 规则：整组一起改）。
+ * @returns {number} 改了几行
+ */
+function writeLookGroup(root, el, text) {
+  let n = 0;
+  try {
+    const shape = storyboardShape();
+    const src = storyboardSrc(root);
+    const abs = join(root, ...src.split('/'));
+    if (!shape || !existsSync(abs)) return 0;
+    const before = readFileSync(abs, 'utf8');
+    const data = parseTable(before, shape);
+    if (!data) return 0;
+    const want = String(text || '').replace(/\s+/g, ' ').trim();
+    const shots = (Array.isArray(el && el.shots) ? el.shots : []).map(String);
+    /* 改之前的画风文字（用来在已存的最终提示词里做逐字替换） */
+    const oldText = lookTextOf(root, el);
+    for (const g of data.groups || []) {
+      for (const r of g.rows || []) {
+        const no = String(r.no || '');
+        if (shots.length && !shots.includes(no)) continue;
+        if (String(r.look || '') === want) continue;
+        r.look = want;
+        n += 1;
+      }
+    }
+    if (!n) return 0;
+    const after = renderTable(data);
+    if (after === before.trim()) return 0;
+    try { backup(root, abs); } catch { /* 备份失败也照写 */ }
+    writeFileSync(abs, after, 'utf8');
+    logChange(root, { op: 'edit', key: src, title: '画风（整组）', by: 'user', why: '改画风主体 → 同步表格画风列' });
+    /*
+     * ★ 最终提示词也要跟着走（用户 2026-11-06：「有这个元素最终的所有地方都双向同步」）。
+     *   提示词存过（agent 写 / 人改）就是快照，不会自己变 ⇒ 这里把其中的**旧画风那句**逐字换成新的。
+     *   找不到旧句（agent 改写过/拆开写）就不动，只记一条 trace —— 不猜、不覆盖别人的文字。
+     */
+    try {
+      if (oldText && oldText !== want) {
+        const gen = readGen(root);
+        const U = readUnits(root);
+        let touched = 0;
+        for (const u of (U.units || [])) {
+          const covers = (u.covers || []).map(String);
+          if (shots.length && !covers.some((no) => shots.includes(no))) continue;
+          const row = (gen.unitRows || {})[u.id];
+          if (!row || !row.prompt) continue;
+          if (String(row.prompt).indexOf(oldText) < 0) continue;
+          row.prompt = String(row.prompt).split(oldText).join(want);
+          row.lookSyncedAt = new Date().toISOString();
+          touched += 1;
+        }
+        if (touched) writeGen(root, gen);
+      }
+    } catch { /* 提示词同步失败不影响画风列 */ }
+  } catch { /* 忽略 */ }
+  return n;
+}
+
+/**
+ * 把画风文字灌进 look-one 节点（画布上那张卡片显示的就是它）。
+ * 只改 text/via，不动别的东西。
+ */
+/**
+ * 用户 2026-11-06 定（B）：在分镜表里改某一行的「画风」列 ⇒ **同一套画风的那几行整组改**。
+ * 判据：改前这一行的画风文字，等于某个画风元素当前的文字。
+ * @returns {number} 顺带改掉的行数
+ */
+function propagateLookChange(root, beforeText, afterText) {
+  let n = 0;
+  try {
+    const shape = storyboardShape();
+    if (!shape) return 0;
+    const b = parseTable(String(beforeText || ''), shape);
+    const a = parseTable(String(afterText || ''), shape);
+    if (!a) return 0;
+    const lookOf = (data) => {
+      const m = new Map();
+      for (const g of (data && data.groups) || []) for (const r of g.rows || []) m.set(String(r.no || ''), String(r.look || '').replace(/\s+/g, ' ').trim());
+      return m;
+    };
+    const before = lookOf(b);
+    const after = lookOf(a);
+    const refs = readRefs(root);
+    const looks = (refs.elements || []).filter((x) => String(x.kind || '') === 'look');
+    if (!looks.length) return 0;
+    for (const [no, val] of after) {
+      const old = before.has(no) ? before.get(no) : '';
+      if (old === val) continue;
+      if (!val) continue;
+      const textOfEl = (el2) => {
+        const shots2 = (el2.shots || []).map(String);
+        const vals = [];
+        for (const [no2, v2] of before) {
+          if (!v2) continue;
+          if (shots2.length && !shots2.includes(no2)) continue;
+          if (!vals.includes(v2)) vals.push(v2);
+        }
+        return vals.join(' / ');
+      };
+      const el = looks.find((x) => (x.shots || []).map(String).includes(no) && textOfEl(x) === old);
+      if (!el) continue;
+      n += writeLookGroup(root, el, val);
+    }
+  } catch { /* 忽略 */ }
+  return n;
+}
+
+function applyLookTexts(root, stages) {
+  try {
+    const refs = readRefs(root);
+    const byTitle = new Map();
+    for (const el of refs.elements || []) {
+      if (String(el.kind || '') !== 'look') continue;
+      byTitle.set(String(el.name || '').trim(), el);
+    }
+    if (!byTitle.size) return;
+    const walk = (n) => {
+      if (String(n.template || '') === 'look-one') {
+        const el = byTitle.get(String(n.title || '').trim());
+        if (el) {
+          n.text = lookTextOf(root, el);
+          /* 客户端优先读 fileText：这里必须一起写，否则画布上会显示「只有标题的 # 行」被剥成空 */
+          n.fileText = n.text;
+          n.doc = null;
+          n.via = 'look';
+          n.whole = true;
+          n.src = '';
+          n.line = 0;
+          n.shapeOk = true;
+          n.lookElementId = String(el.id || '');
+        }
+      }
+      for (const c of n.children || []) walk(c);
+    };
+    for (const s of stages || []) walk(s);
+  } catch { /* 忽略 */ }
+}
+
 function attachRowGen(root, stages) {
+  /*
+   * 人物/场景/道具节点要"自动和表格关联"（用户 2026-11-05 问「为什么人物节点没有自动与表格关联」）：
+   * 元素在表格里已经绑了图、但该主体下面还没有图片节点 → 自动建一个图片节点并把绑定图搬进去。
+   * 建完之后 `syncRefsFromNodes` 会让 binding 变成派生值，连接线也才有起点。
+   */
+  try { ensureImageNodes(root); } catch { /* 自动建节点失败不影响画布 */ }
+  /* 表里有画风文字但库里没有对应元素 ⇒ 自动补一个（用户 2026-11-06 确认要自动） */
+  try { seedLookElements(root); } catch { /* 忽略 */ }
+  /* 画风主体节点的正文 = 分镜表「画风」列（用户 2026-11-06） */
+  try { applyLookTexts(root, stages); } catch { /* 忽略 */ }
+  /* 图片节点是元素图的真相：出画布前先同步一次（连接线/表格都读同步后的绑定） */
+  try { syncRefsFromNodes(root); } catch { /* 同步失败不影响画布 */ }
+  /* 图片节点生成出来的图也进它自己的图集（D39：节点兼容器） */
+  const adoptMediaLatest = (n) => {
+    try {
+      const latest = n && n.kind === 'media' && n.media && n.media.latest;
+      const src = latest && String(latest.src || '');
+      if (!src || String(n.media.type || 'image') !== 'image') return;
+      const all = readMediaNodes(root);
+      const rec = all[String(n.key)] && typeof all[String(n.key)] === 'object' ? all[String(n.key)] : { images: [] };
+      rec.images = Array.isArray(rec.images) ? rec.images : [];
+      if (rec.images.some((im) => String(im.src) === src)) return;
+      rec.images.push({ id: 'g' + Date.now().toString(36), src, by: 'gen', at: new Date().toISOString() });
+      all[String(n.key)] = rec;
+      writeMediaNodes(root, all);
+      syncRefsFromNodes(root);
+    } catch { /* 采纳失败不影响画布 */ }
+  };
   let jobs = [];
   let assets = [];
   try { jobs = MEDIA.listJobs(root); } catch { jobs = []; }
@@ -5282,6 +6005,8 @@ function attachRowGen(root, stages) {
             why: String(u.why || ''),
             /* 参考素材：绑了图的排在前面，没绑的排后面（画布上先显示已就绪的） */
             refs: refsForUnit(root, u, rows).sort((a, b) => (b.images.length ? 1 : 0) - (a.images.length ? 1 : 0)),
+            /* 用户手加的素材（素材1、素材2…）：和元素无关，自己带编号 */
+            materials: materialsForUnit(root, u),
             ...unitStateOf(root, u, jobs, assets),
           }));
         for (const no of Object.keys(gen)) gen[no].unit = byNo.get(String(no)) || '';
@@ -5289,7 +6014,10 @@ function attachRowGen(root, stages) {
         n.units = [];
       }
       n.genRows = gen;
+      /* 连接线：图片节点 → 这些生成单元（客户端按它画虚线，常显、不进表格） */
+      n.linkNodes = linkNodesOf(root, n.units || []);
     }
+    adoptMediaLatest(n);
     for (const c of (n && n.children) || []) walk(c);
   };
   for (const s of stages || []) walk(s);
@@ -9051,6 +9779,24 @@ export function apply(ctx, config) {
              *
              * 这里**只动那一段**，不整份重写文件 —— 免得把用户手动写的其他部分冲掉。
              */
+            /*
+             * ★★ 画风主体节点（look-one）的正文不是一个文件 —— 它就是分镜表「画风」列。
+             *    用户 2026-11-06 定：改这里 = 改它覆盖的那几行（B 规则：整组一起改）。
+             */
+            if (String(body?.via || '') === 'look' || String(body?.kind || '') === 'look') {
+              try {
+                const refs = readRefs(root);
+                const title = String(body?.title || '').trim();
+                const el = (refs.elements || []).find((x) => String(x.kind || '') === 'look' && String(x.name || '').trim() === title);
+                if (!el) return sendJson(res, 404, { ok: false, error: '没有这个画风元素：' + title });
+                const n = writeLookGroup(root, el, String(body?.text || ''));
+                trace('[画风整组写回] ' + title + ' → ' + n + ' 行');
+                return sendJson(res, 200, { ok: true, rows: n });
+              } catch (e) {
+                return sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+              }
+            }
+
             if (body?.itemTitle) {
               const rel2 = String(body?.src || '').replace(/\\/g, '/');
               const abs2 = rel2 ? join(root, ...rel2.split('/')) : '';
@@ -9146,7 +9892,17 @@ export function apply(ctx, config) {
               try {
                 afterText = readFileSync(abs, 'utf8');
               } catch { afterText = ''; }
-              const substantive = beforeText === '' || editHasSubstance(beforeText, afterText);
+              /*
+             * ★ 画风列的整组同步（用户 2026-11-06 定 B）：改一行 = 改这套画风的所有行。
+             */
+            try {
+              const sbSrc = storyboardSrc(root);
+              if (sbSrc && rel === sbSrc) {
+                const moved = propagateLookChange(root, beforeText, afterText);
+                if (moved) trace('[画风整组同步] 顺带改了 ' + moved + ' 行');
+              }
+            } catch { /* 忽略 */ }
+            const substantive = beforeText === '' || editHasSubstance(beforeText, afterText);
               if (!substantive) {
                 trace('[不叫醒] 这次写回只是版面改动（空行/空表格行/格式），没有内容要 agent 判断');
               } else if (autoWake) {
@@ -9248,7 +10004,7 @@ export function apply(ctx, config) {
                     const kept = String(cur.prompt || '').trim();
                     if (kept && String(cur.source || '') !== 'program') continue;
                     const rowsIn = (u.covers || []).map((no) => byNo0.get(String(no))).filter(Boolean);
-                    const text = composeUnitPrompt(rowsIn, refsForUnit(root, u, rows));
+                    const text = composeUnitPrompt(rowsIn, refsForUnit(root, u, rows), materialsForUnit(root, u));
                     if (!text) continue;
                     gen0.unitRows = gen0.unitRows || {};
                     gen0.unitRows[u.id] = { ...cur, id: u.id, covers: (u.covers || []).map(String), prompt: text, durationSec: Number(u.durationSec) || 0, source: 'program', updatedAt: new Date().toISOString() };
@@ -9320,6 +10076,7 @@ export function apply(ctx, config) {
               refs.elements = Array.isArray(refs.elements) ? refs.elements : [];
               refs.binding = refs.binding && typeof refs.binding === 'object' ? refs.binding : {};
               const notes = [];
+              let droppedNodes = 0;   /* 删元素时顺带删掉的画布节点数（回执用） */
               const findEl = (id) => refs.elements.find((x) => String(x.id) === String(id));
 
               if (action === 'save' || action === 'add') {
@@ -9356,8 +10113,11 @@ export function apply(ctx, config) {
                 el.name = name;
                 if (body.base) el.base = String(body.base);
               } else if (action === 'remove') {
+                const goneEl = refs.elements.find((x) => String(x.id) === String(body.id)) || null;
                 refs.elements = refs.elements.filter((x) => String(x.id) !== String(body.id));
                 delete refs.binding[String(body.id)];
+                /* 元素没了，画布上对应的主体/图片节点也一起撤掉（用户 11-06 定） */
+                if (goneEl) { try { droppedNodes += dropElementNodes(root, goneEl, '元素已删除'); } catch { /* 忽略 */ } }
               } else if (action === 'merge') {
                 const ids = (Array.isArray(body.ids) ? body.ids : []).map(String);
                 const els = refs.elements.filter((x) => ids.includes(String(x.id)));
@@ -9378,6 +10138,11 @@ export function apply(ctx, config) {
                 keep.aliases = [...new Set(aliases.filter((x) => refNameKey(x) !== refNameKey(keep.name)))];
                 if (String(body.name || '').trim()) keep.name = String(body.name).trim();
                 keep.state = (((refs.binding[String(keep.id)] || {}).images) || []).length ? 'bound' : 'pending';
+                /* 被并掉的那几个元素，画布上的节点一起撤掉（保留下来的那个不动） */
+                for (const x of els) {
+                  if (String(x.id) === String(keep.id)) continue;
+                  try { droppedNodes += dropElementNodes(root, x, '元素已合并到「' + String(keep.name) + '」'); } catch { /* 忽略 */ }
+                }
               } else if (action === 'split') {
                 /* 把一个元素按镜号切成两个（唐老板 → 唐老板 + 唐老板·年轻版 这类） */
                 const el = findEl(body.id);
@@ -9396,15 +10161,40 @@ export function apply(ctx, config) {
                 });
                 notes.push('切出「' + name + '」（镜 ' + move.join(',') + '）');
               } else if (action === 'fromAsset') {
-                /* 从本片素材库里挑一张已生成的图（画布上的成片/图片），直接绑到元素 */
+                /*
+                 * 从素材库挑一张图绑到元素。素材库是**全局**的（用户 2026-11-05：
+                 * 片里选素材看到的应该和全局素材库一样，不要过滤掉别的项目），
+                 * 所以这里支持 `fromRoot`：图在别的片里就**复制进本片**再绑，
+                 * 不引用外片路径（否则搬片/打包就断）。
+                 */
                 const el = findEl(body.id);
                 if (!el) return sendJson(res, 404, { ok: false, error: '没有这个元素' });
-                const src = String(body.src || '').replace(/\\/g, '/');
-                if (!src.startsWith('.film/assets/') || src.includes('..')) {
-                  return sendJson(res, 400, { ok: false, error: '只能从本片素材库选（.film/assets/…）' });
+                let src = String(body.src || '').replace(/\\/g, '/');
+                if (src.includes('..')) return sendJson(res, 400, { ok: false, error: '路径不合法' });
+                const fromRaw = String(body.fromRoot || '').replace(/[\\/]+$/, '');
+                const fromRoot = fromRaw ? discoverProjects(roots, explicit).find((r) => r.toLowerCase() === fromRaw.toLowerCase()) : root;
+                if (fromRaw && !fromRoot) return sendJson(res, 400, { ok: false, error: '来源项目不在已发现的项目里' });
+                const sameFilm = String(fromRoot).toLowerCase() === String(root).toLowerCase();
+                if (sameFilm && !src.startsWith('.film/assets/') && !src.startsWith(MATERIAL_DIR + '/')) {
+                  return sendJson(res, 400, { ok: false, error: '只能从素材库或 素材/ 里选' });
                 }
-                const absA = join(root, ...src.split('/'));
-                if (!existsSync(absA)) return sendJson(res, 404, { ok: false, error: '素材文件不在了：' + src });
+                const absSrc = join(fromRoot, ...src.split('/'));
+                if (!existsSync(absSrc)) return sendJson(res, 404, { ok: false, error: '素材文件不在了：' + src });
+                if (!sameFilm) {
+                  /* 跨片：复制进本片 .film/assets/refs/，绑定指向副本 */
+                  const base = safeMaterialName(src.split('/').pop() || 'ref');
+                  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 12);
+                  const rel = REF_COPY_DIR + '/' + stamp + '-' + base;
+                  const absOut = join(root, ...rel.split('/'));
+                  try {
+                    mkdirSync(dirname(absOut), { recursive: true });
+                    copyFileSync(absSrc, absOut);
+                  } catch (e) {
+                    return sendJson(res, 500, { ok: false, error: '复制失败：' + String((e && e.message) || e) });
+                  }
+                  notes.push('从「' + String(fromRoot).split(/[\\/]/).pop() + '」复制 1 张进来');
+                  src = rel;
+                }
                 const curA = ((refs.binding[String(el.id)] || {}).images || []).slice();
                 const nextA = body.replace ? [src] : [...new Set([...curA, src])];
                 refs.binding[String(el.id)] = { images: nextA, at: new Date().toISOString() };
@@ -9426,6 +10216,60 @@ export function apply(ctx, config) {
                 mkdirSync(dirname(absOut), { recursive: true });
                 writeFileSync(absOut, buf);
                 return sendJson(res, 200, { ok: true, path: rel, bytes: buf.length });
+              } else if (action === 'addMaterial') {
+                /*
+                 * 用户手加素材（2026-11-05 用户重新定义）：
+                 * 元素只由 agent 提；**用户的加号只加素材**，系统自动编号「素材N」，
+                 * 同一张图（内容指纹相同）在任何单元里再加都是同一个编号。
+                 * 素材没有语义，用途由用户自己在提示词里写。
+                 */
+                let src = String(body.src || '').replace(/\\/g, '/');
+                if (!src || src.includes('..')) return sendJson(res, 400, { ok: false, error: '路径不合法' });
+                const fromRaw = String(body.fromRoot || '').replace(/[\\/]+$/, '');
+                const fromRoot = fromRaw ? discoverProjects(roots, explicit).find((r) => r.toLowerCase() === fromRaw.toLowerCase()) : root;
+                if (fromRaw && !fromRoot) return sendJson(res, 400, { ok: false, error: '来源项目不在已发现的项目里' });
+                const sameFilm = String(fromRoot).toLowerCase() === String(root).toLowerCase();
+                if (!/\.(png|jpe?g|webp|gif)$/i.test(src)) return sendJson(res, 400, { ok: false, error: '参考素材只能是图片' });
+                const absSrc = join(fromRoot, ...src.split('/'));
+                if (!existsSync(absSrc)) return sendJson(res, 404, { ok: false, error: '图不在了：' + src });
+                if (!sameFilm) {
+                  const base = safeMaterialName(src.split('/').pop() || 'ref');
+                  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 12);
+                  const rel = REF_COPY_DIR + '/' + stamp + '-' + base;
+                  const absOut = join(root, ...rel.split('/'));
+                  try {
+                    mkdirSync(dirname(absOut), { recursive: true });
+                    copyFileSync(absSrc, absOut);
+                  } catch (e) {
+                    return sendJson(res, 500, { ok: false, error: '复制失败：' + String((e && e.message) || e) });
+                  }
+                  src = rel;
+                  notes.push('从「' + String(fromRoot).split(/[\\/]/).pop() + '」复制 1 张进来');
+                }
+                const added = attachMaterial(root, { image: src, shots: (Array.isArray(body.shots) ? body.shots : []).map(String) });
+                if (!added.ok) return sendJson(res, 400, added);
+                notes.push((added.reused ? '这张图已经在库里：' : '加了 ') + added.material.label
+                  + '（镜 ' + (added.material.shots || []).join('/') + '）');
+                /* 立刻回：后面那段 writeRefs(refs) 用的是进路由时读的旧对象，会把新素材冲掉 */
+                trace('[参考素材] ' + root + ' addMaterial（' + notes.join('；') + '）');
+                return sendJson(res, 200, { ...refsPayload(root), notes, droppedNodes });
+              } else if (action === 'dropMaterial') {
+                const dropped = detachMaterial(root, { id: String(body.id || ''), shots: (Array.isArray(body.shots) ? body.shots : []).map(String) });
+                if (!dropped.ok) return sendJson(res, 404, dropped);
+                notes.push(dropped.gone ? ('删掉了 ' + dropped.label) : (dropped.label + ' 从这几镜撤掉'));
+                trace('[参考素材] ' + root + ' dropMaterial（' + notes.join('；') + '）');
+                return sendJson(res, 200, { ...refsPayload(root), notes });
+              } else if (action === 'unitOptOut') {
+                /* 单元级：这个单元不用某个主体的参考图（D39） */
+                const unitId = String(body.unitId || '');
+                const elId = String(body.elementId || '');
+                if (!unitId || !elId) return sendJson(res, 400, { ok: false, error: '缺 unitId / elementId' });
+                refs.unitOptOut = refs.unitOptOut && typeof refs.unitOptOut === 'object' ? refs.unitOptOut : {};
+                const curOpt = (refs.unitOptOut[unitId] || []).map(String);
+                const off = body.off !== false;
+                refs.unitOptOut[unitId] = off ? [...new Set([...curOpt, elId])] : curOpt.filter((x) => x !== elId);
+                if (!refs.unitOptOut[unitId].length) delete refs.unitOptOut[unitId];
+                notes.push(off ? ('这个单元不用 ' + elId) : ('这个单元恢复 ' + elId));
               } else if (action === 'autobind') {
                 const n = autoBindRefs(root);
                 notes.push('自动匹配 ' + n + ' 个元素');
@@ -9487,6 +10331,114 @@ export function apply(ctx, config) {
     trace('已注册路由 /filmflow/refs/file');
   } catch (e) {
     trace('注册 /filmflow/refs/file 抛出: ' + String((e && e.stack) || e));
+  }
+
+  /* ---- /filmflow/media-node ---- 图片节点兼容器（D39 连接线）：
+   *   GET  ?root=&key=         → 这个图片节点里有哪些图、归属哪个主体/元素、连到哪些单元
+   *   POST {root,key,action}   → add（本地已落盘路径 / 跨片复制）/ remove
+   * 写完立刻同步元素绑定（binding 是派生值）。
+   */
+  try {
+    ctx.effect(
+      () =>
+        webServer.register({
+          kind: 'exact',
+          path: '/filmflow/media-node',
+          handler: async (req, res) => {
+            try {
+              const u0 = new URL(req.url || '/', 'http://x');
+              let body = {};
+              if (req.method === 'POST') body = JSON.parse(await readBody(req, MAX_UPLOAD_BODY));
+              const want = String(req.method === 'POST' ? (body.root || '') : (u0.searchParams.get('root') || ''))
+                .replace(/[\\/]+$/, '').toLowerCase();
+              const root = discoverProjects(roots, explicit).find((r) => r.toLowerCase() === want);
+              if (!root) return sendJson(res, 400, { ok: false, error: 'root 不在已发现的项目里' });
+              const key = String(req.method === 'POST' ? (body.key || '') : (u0.searchParams.get('key') || ''));
+              const idx = nodeIndexOf(root);
+              const node = idx.get(key);
+              if (!node) return sendJson(res, 404, { ok: false, error: '没有这个节点：' + key });
+              const subject = node.parentKey;
+              const subjNode = subject ? idx.get(subject) : null;
+              const refs = readRefs(root);
+              const element = (refs.elements || []).find((el) => String(el.nodeId || '') === subject
+                || (!el.nodeId && subjNode && String(el.name || '').trim() === String(subjNode.title || '').trim())) || null;
+              const unitsOf = () => {
+                if (!element) return [];
+                try {
+                  const units = readUnits(root).units || [];
+                  return units.filter((u) => {
+                    const covers = (u.covers || []).map(String);
+                    const shots = Array.isArray(element.shots) ? element.shots.map(String) : [];
+                    if (shots.length) return shots.some((no) => covers.includes(no));
+                    return false;
+                  }).map((u) => String(u.id));
+                } catch { return []; }
+              };
+
+              if (req.method !== 'POST') {
+                return sendJson(res, 200, {
+                  ok: true, key, title: String(node.title || ''),
+                  subjectKey: subject, subjectTitle: subjNode ? String(subjNode.title || '') : '',
+                  elementId: element ? String(element.id) : '', elementName: element ? String(element.name || '') : '',
+                  units: unitsOf(),
+                  images: mediaNodeImages(root, key),
+                });
+              }
+              if (!requireToken(req, res)) return;
+              const action = String(body.action || '');
+              const all = readMediaNodes(root);
+              const rec = all[key] && typeof all[key] === 'object' ? all[key] : { images: [] };
+              rec.images = Array.isArray(rec.images) ? rec.images : [];
+              if (action === 'add') {
+                let src = String(body.src || '').replace(/\\/g, '/');
+                if (!src || src.includes('..')) return sendJson(res, 400, { ok: false, error: '路径不合法' });
+                if (!/\.(png|jpe?g|webp|gif)$/i.test(src)) return sendJson(res, 400, { ok: false, error: '图片节点只收图片' });
+                const fromRaw = String(body.fromRoot || '').replace(/[\\/]+$/, '');
+                const fromRoot = fromRaw ? discoverProjects(roots, explicit).find((r) => r.toLowerCase() === fromRaw.toLowerCase()) : root;
+                if (fromRaw && !fromRoot) return sendJson(res, 400, { ok: false, error: '来源项目不在已发现的项目里' });
+                const absSrc = join(fromRoot, ...src.split('/'));
+                if (!existsSync(absSrc)) return sendJson(res, 404, { ok: false, error: '图不在了：' + src });
+                if (String(fromRoot).toLowerCase() !== String(root).toLowerCase()) {
+                  const base = safeMaterialName(src.split('/').pop() || 'ref');
+                  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 12);
+                  const rel = REF_COPY_DIR + '/' + stamp + '-' + base;
+                  const absOut = join(root, ...rel.split('/'));
+                  try {
+                    mkdirSync(dirname(absOut), { recursive: true });
+                    copyFileSync(absSrc, absOut);
+                  } catch (e) {
+                    return sendJson(res, 500, { ok: false, error: '复制失败：' + String((e && e.message) || e) });
+                  }
+                  src = rel;
+                }
+                if (!rec.images.some((im) => String(im.src) === src)) {
+                  rec.images.push({ id: 'i' + (rec.images.length + 1) + '_' + Date.now().toString(36), src, by: 'upload', at: new Date().toISOString() });
+                }
+                all[key] = rec;
+                writeMediaNodes(root, all);
+                try { syncRefsFromNodes(root); } catch { /* 忽略 */ }
+                trace('[图片节点] ' + root + ' ' + key + ' 加图 ' + src);
+                return sendJson(res, 200, { ok: true, key, images: mediaNodeImages(root, key), units: unitsOf(), elementId: element ? String(element.id) : '' });
+              }
+              if (action === 'remove') {
+                const want2 = String(body.src || '');
+                rec.images = rec.images.filter((im) => String(im.src) !== want2);
+                all[key] = rec;
+                writeMediaNodes(root, all);
+                try { syncRefsFromNodes(root); } catch { /* 忽略 */ }
+                return sendJson(res, 200, { ok: true, key, images: mediaNodeImages(root, key) });
+              }
+              return sendJson(res, 400, { ok: false, error: '不认识的 action：' + action });
+            } catch (e) {
+              sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+            }
+          },
+        }),
+      'filmflow: /filmflow/media-node',
+    );
+    trace('已注册路由 /filmflow/media-node');
+  } catch (e) {
+    trace('注册 /filmflow/media-node 抛出: ' + String((e && e.stack) || e));
   }
 
   /* ---- POST /filmflow/apply ---- 下游直写（上游改动引起过期时，agent 可直接写） */
@@ -9734,10 +10686,12 @@ export function apply(ctx, config) {
                   const rowsIn = allRows0.filter((r) => wantNos.has(String(r.no)));
                   /* 参考素材：每次生成前按当前绑定重算编号（换图/新绑都不需要改提示词） */
                   const refList = refsForUnit(root, u, allRows0);
-                  const refImgs = refsBlock(rowsIn, refList).images;
-                  const prompt = withFreshRefs(String(body.prompt != null && String(body.prompt).trim()
+                  const matList = materialsForUnit(root, u);
+                  const refImgs = refsBlock(rowsIn, refList, matList).images;
+                  const lookLine0 = lookTextForShots(root, u.covers || []);
+                  const prompt = injectLookSection(withFreshRefs(String(body.prompt != null && String(body.prompt).trim()
                     ? body.prompt
-                    : (cur.prompt || composeUnitPrompt(rowsIn, refList))).trim(), rowsIn, refList);
+                    : (cur.prompt || composeUnitPrompt(rowsIn, refList, matList))).trim(), rowsIn, refList, matList), lookLine0);
                   if (!prompt) return sendJson(res, 400, { ok: false, error: '这个单元没有提示词（组内各镜的画面/台词都是空？）' });
                   const model = String(body.model || cur.model || U.model || DEFAULT_VIDEO_MODEL);
                   const stored = cur.params && typeof cur.params === 'object' ? cur.params : {};
@@ -10193,7 +11147,7 @@ export function apply(ctx, config) {
                * 素材库要能**跨片**列（用户 2026-10-23：「素材库里面没有我生成的素材」——
                * 素材在另一部片里）。所以 list 在没有 root 时不报错，直接聚合所有片子。
                */
-              if (!root && action !== 'list') {
+              if (!root && action !== 'list' && action !== 'roles') {
                 sendJson(res, 400, { ok: false, error: 'root 不在已发现的项目里' });
                 return;
               }
@@ -10231,13 +11185,54 @@ export function apply(ctx, config) {
                 sendJson(res, 200, { ok: true, root, items: MEDIA.listAssets(root) });
                 return;
               }
+              /*
+               * 角色库（2026-11-05）：跨项目的角色图 = 素材上挂了 `role.name` 的那些。
+               * 用户明确：**元素的数据结构不变**（agent 列的元素还是元素），
+               * 角色库只是给人挑参考图更方便的一个视图。
+               */
+              if (action === 'roles') {
+                const all = [];
+                for (const r0 of discoverProjects(roots, explicit)) {
+                  const base = r0.split(/[\\\\/]/).pop();
+                  for (const it of MEDIA.listAssets(r0)) {
+                    if (!it.role || !String(it.role.name || '').trim()) continue;
+                    all.push({ ...it, film: base, root: r0 });
+                  }
+                }
+                all.sort((a, b) => String((b.role && b.role.at) || b.at || '').localeCompare(String((a.role && a.role.at) || a.at || '')));
+                sendJson(res, 200, { ok: true, roles: true, items: all });
+                return;
+              }
               if (!requireToken(req, res)) return;
               if (action === 'star') {
                 sendJson(res, 200, MEDIA.starAsset(root, String(body.id || ''), !!body.star));
                 return;
               }
+              if (action === 'state') {
+                sendJson(res, 200, MEDIA.setAssetState(root, String(body.id || ''), String(body.state || 'candidate')));
+                return;
+              }
+              if (action === 'role') {
+                sendJson(res, 200, MEDIA.setAssetRole(root, String(body.id || ''), String(body.name || '')));
+                return;
+              }
               if (action === 'remove') {
-                sendJson(res, 200, MEDIA.removeAsset(root, String(body.id || '')));
+                /* 引用保护：正被元素当参考图的素材不能删（先解绑），否则生成会指向一个空文件 */
+                const id0 = String(body.id || '');
+                const hit = MEDIA.readAssets(root).items.find((x) => String(x.id) === id0);
+                if (hit) {
+                  const src = String(hit.src || '');
+                  let usedBy = [];
+                  try {
+                    const refs = readRefs(root);
+                    usedBy = (refs.elements || []).filter((el) => ((refs.binding || {})[String(el.id)] || { images: [] }).images.includes(src)).map((el) => String(el.name || el.id));
+                  } catch { usedBy = []; }
+                  if (usedBy.length) {
+                    sendJson(res, 400, { ok: false, error: '这张图正被「' + usedBy.join('、') + '」当参考图，先解绑再删' });
+                    return;
+                  }
+                }
+                sendJson(res, 200, MEDIA.removeAsset(root, id0));
                 return;
               }
               sendJson(res, 400, { ok: false, error: '不认识的 action：' + action });
@@ -11854,8 +12849,12 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
 
           '**参考素材（elements）**：图片只能由用户在画布上绑，你**看不到也判断不了**哪张图是谁。你要做的是把“这一镜需要哪些元素的参考图”列出来：',
           '`elements:[{name:"唐老板",kind:"person",aliases:["老唐"],shots:["1","2"]},{name:"A室",kind:"scene",aliases:["审讯室"],shots:["1","2"]}]`。',
-          '拆分判据：**要换一张参考图才算新元素**（`唐老板·年轻版`、`换上病号服`）；只是剧情/状态变化（坐下、喝茶、笑）不要拆。',
+          '**收录判据**：凡是要在**两个以上生成单元**里保持同一外观的人/场景/道具都要列 —— 一次生成（一个单元）内部本来就一致，同一单元里的东西不必给参考图。',
+          '**拆分判据**：同一实体外观换了一套才是新元素（`唐老板·年轻版`、`换上病号服`）；只是剧情/状态变化（坐下、喝茶、笑）不要拆。',
           '命中范围写 `shots`（镜号），别写单元号 —— 重划分组时镜号是稳的。',
+
+          '**`@图片N` 的编号你不用写**：程序按 **人物 → 道具 → 场景 → 画风 → 用户素材** 分组编号，组内按本单元首次出场顺序',
+          '（即 sd25-pe 的「按类型分组」）。你只写主体名（「唐老板」「A室」），编号由程序在合成前现算 —— 自己写编号必错，且换图后就失效。',
 
           '**一次生成是一个连续镜头，中间不会有剪辑点**；并组之后按「多镜头一次生成」来写：',
           '`镜头1：中景，警察坐在桌后翻资料，抬头看对面（缓推）；警察说：{唐老板是吧？}` `镜头2：…` ……（顺序就是剪辑顺序，不写秒数）。',
@@ -12091,7 +13090,8 @@ const pBool = (desc) => ({ type: 'boolean', description: desc });
           '写完之后，在回话里告诉用户：我在「节点名」里写好了提示词，你点「生成」就会出图。',
           '',
           '**写提示词前先看 docs/提示词-按模型规范.md**：视频按 Seedance 2.0 的进阶公式',
-          '（主体+动作+场景+光影+运镜+风格+画质+约束），有参考素材用「参考<图片N>中的<主体N>」句式；',
+          '（主体+动作+场景+光影+运镜+风格+画质+约束），有参考素材用「参考<图片N>中的<主体N>」句式',
+          '（这里写的是**一个媒体节点自己的图**，N 由你按上传顺序写；生成单元的 `@图片N` 反过来由程序编，你不写）；',
           'Seedance 2.5 用整数秒时间轴（≤30s）；Seedance 2.0 只认镜头序号、不认时间戳；',
           'Seedream 图片提示词要简洁（官方：简洁精确优于堆词），要渲染的文字放双引号。',
           '写 2.5 的提示词请按 docs/sd25-pe-SKILL.md 的模板重组；画幅/时长/分辨率不要写进提示词正文。',
@@ -12734,6 +13734,9 @@ export {
   readRefs,
   writeRefs,
   refsForUnit,
+  materialsForUnit,
+  attachMaterial,
+  detachMaterial,
   refsPayload,
   saveRefElements,
   autoBindRefs,

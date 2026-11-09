@@ -167,6 +167,57 @@ window.__ModuleLoader__.load({
  * z-index 0 / 节点 1：线在节点底下穿过。
  */
 .ff-lines{position:absolute;left:0;top:0;pointer-events:none;z-index:0;overflow:visible}
+/* 连接线（D39）：图片节点 → 生成单元的行。常显、虚线、不进表格、不参与布局 */
+.ff-links{position:absolute;left:0;top:0;pointer-events:none;z-index:0;overflow:visible}
+.ff-link-line{fill:none;stroke:#fff;stroke-width:0.7;stroke-opacity:.7;
+  stroke-linecap:round;vector-effect:non-scaling-stroke}
+.ff-link-dot{fill:#fff;fill-opacity:.9}
+/* 图片节点兼容器（D39）：节点里的参考图 */
+/* 我们自己的引用胶囊：官方那个文件图标藏起来，位置让给缩略图 */
+[data-composer-chip="ffimg"] svg{opacity:0}
+[data-composer-chip="ffimg"] span{color:transparent}
+.ff-at-inline{position:fixed;z-index:128;width:16px;height:16px;object-fit:cover;border-radius:3px;pointer-events:none;box-shadow:0 0 0 1px rgba(255,255,255,.25)}
+.ff-at-th{width:28px;height:28px;object-fit:cover;border-radius:4px;flex:0 0 auto;background:#000}
+.ff-at-entry{padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.ff-at-entry:hover{background:var(--dsw-alias-bg-layer-3)}
+.ff-at-plus{position:fixed;z-index:129;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.ff-at-plus:hover{border-color:var(--dsw-alias-brand-primary)}
+.ff-at-chip{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 5px 0 2px;margin:0 2px;border-radius:5px;background:rgba(255,255,255,.1);border:1px solid var(--dsw-alias-border-l2);vertical-align:middle;font-size:11px}
+.ff-at-chip .ff-at-at{color:var(--dsw-alias-label-secondary);margin-right:1px}
+.ff-at-chip img{width:16px;height:16px;object-fit:cover;border-radius:3px;display:block}
+.ff-at-chip .ff-at-ic{width:16px;text-align:center}
+.ff-at-chip .ff-at-chip-p{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:10px;margin-left:2px}
+.ff-at-chip .ff-at-chip-t{color:var(--dsw-alias-label-primary)}
+.ff-at-picker{position:fixed;z-index:130;display:none;max-height:300px;overflow:auto;padding:4px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.35);font-size:11.5px}
+.ff-at-hd{font-size:10.5px;color:var(--dsw-alias-label-tertiary);padding:2px 6px 4px}
+.ff-at-it{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer}
+.ff-at-it.on,.ff-at-it:hover{background:var(--dsw-alias-bg-layer-3)}
+.ff-at-tag{flex:0 0 auto;font-size:10px;padding:0 4px;border-radius:4px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+.ff-at-nm{flex:0 0 auto;font-weight:600}
+.ff-at-pa{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
+/* 画风主体（look-one）：没有标题行，整段文字按正常字号显示（用户 2026-11-06） */
+.ff-node.look{padding:10px 14px}
+.ff-node.look .ff-node-bd{font-size:13.5px;line-height:1.65;white-space:pre-wrap;max-height:none;overflow:visible}
+/* 图片节点：自动建的「XXX 参考图」不再显示标题，只留一个很淡的编号 */
+.ff-node.media.notitle .ff-node-hd{padding:2px 8px 0;min-height:0;border-bottom:0}
+.ff-node.media.notitle .ff-node-hd .ff-node-no{opacity:.45;font-size:10px}
+/* 图片节点兼容器（D39）：参考图就显示在预览框里，按钮叠在框内底部 */
+.ff-media-thumb.hasref{border:1px dashed var(--dsw-alias-border-l1)}
+.ff-media-ref-tag{position:absolute;left:4px;top:4px;font-size:10px;padding:0 5px;border-radius:4px;
+  background:rgba(0,0,0,.55);color:#fff;pointer-events:none}
+.ff-media-refops{position:absolute;right:4px;bottom:4px;display:flex;gap:4px;z-index:2}
+.ff-media-refops .ff-media-addimg{font-size:10px;padding:1px 6px;background:rgba(0,0,0,.55);color:#fff;
+  border:1px solid rgba(255,255,255,.25);border-radius:5px}
+.ff-media-imgs-hd{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.ff-media-imgs-strip{display:flex;flex-wrap:wrap;gap:6px}
+.ff-media-img-cell{position:relative;width:54px;height:54px;border-radius:6px;overflow:hidden;
+  border:1px solid var(--dsw-alias-border-l2)}
+.ff-media-img-cell img{width:100%;height:100%;object-fit:cover;display:block;cursor:zoom-in}
+.ff-media-img-del{position:absolute;right:1px;top:1px;width:14px;height:14px;line-height:13px;text-align:center;
+  font-size:10px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;cursor:pointer}
+.ff-media-addimg{font-size:11px;padding:2px 8px;border-radius:6px;cursor:pointer;
+  border:1px dashed var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary)}
+.ff-media-addimg:hover{border-color:var(--dsw-alias-brand-primary)}
 .ff-world > .ff-tree{position:relative;z-index:1}
 /* 导线由 drawConnectors() 用 SVG 画（见 layoutBraces），下面这些伪元素规则已废弃 */
 .ff-kids > .ff-tree{position:relative}
@@ -274,6 +325,14 @@ window.__ModuleLoader__.load({
 /* 表格节点太宽：钉在标题行右端，并给标题留出按钮的位置 */
 .ff-node.tbl .ff-node-ops{left:auto;right:0;margin-left:0;top:0}
 .ff-node.tbl .ff-node-hd{padding-right:108px}
+/*
+ * 图片节点（2026-11-05 用户报「有图的图片节点鼠标放上去没有工具卡片、删不掉」）：
+ * 它 overflow:hidden（为了让图片贴齐圆角），而通用规则把按钮放在节点外面
+ * → 被裁掉、点不到。这里把按钮放回节点内部右上角，并盖在图片上面。
+ */
+.ff-node.media .ff-node-ops{left:auto;right:6px;top:6px;margin-left:0;padding:2px 4px;
+  border-radius:6px;background:rgba(0,0,0,.55);z-index:4}
+.ff-node.media .ff-node-hd{padding-right:92px}
 .ff-node:hover .ff-node-ops,.ff-node.ops-on .ff-node-ops{display:flex}
 button.ff-op{font:11px/1 inherit;padding:2px 5px;border-radius:5px;cursor:pointer;
   border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);
@@ -378,10 +437,10 @@ button.ff-btn{background:transparent;font-family:inherit}
 
 /* ── 项目菜单（第一个页面）───────────────────────────────────────────── */
 /* 媒体节点的提示词输入框与调节器（用户 2026-10-22 定的位置：预览与提示词下面） */
-.ff-media-prompt-edit{width:100%;max-width:300px;box-sizing:border-box;font:inherit;font-size:11.5px;line-height:1.5;
-  color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-base);
-  border:1px solid var(--dsw-alias-border-l2);border-radius:7px;padding:6px 8px;resize:vertical;min-height:52px}
-.ff-media-prompt-edit:focus{outline:none;border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}
+.ff-media-prompt-edit{width:auto;max-width:280px;margin:6px 8px 0;box-sizing:border-box;font:inherit;font-size:11.5px;line-height:1.5;
+  color:var(--dsw-alias-label-secondary);background:transparent;
+  border:0;border-bottom:1px solid var(--dsw-alias-border-l2);border-radius:0;padding:2px 0;resize:vertical;min-height:40px}
+.ff-media-prompt-edit:focus{outline:none;border-bottom-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}
 .ff-media-ctrls{display:flex;flex-wrap:wrap;gap:6px 8px;width:100%;max-width:300px;margin-top:2px}
 .ff-media-sel{display:flex;flex-direction:column;gap:2px}
 .ff-media-sel-lb{font-size:10px;color:var(--dsw-alias-label-secondary)}
@@ -426,10 +485,17 @@ button.ff-btn{background:transparent;font-family:inherit}
 
 /* ── 媒体节点（图片/视频/音频）──────────────────────────────── */
 .ff-node.media{max-width:320px;min-width:120px;gap:6px;cursor:default}
+/*
+ * 极简（用户 2026-11-05 第 3 条：「整个节点你可以全部重新做，极简，不要多余的大框小框」）：
+ * 图片节点 = 图 + 一行提示词 + 两个下拉，外面不留框、里面不留框。
+ */
+.ff-node.media{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);padding:0;border-radius:10px;overflow:hidden;box-shadow:none}
+.ff-node.media .ff-node-hd{border:0;background:transparent;padding:6px 8px 0}
 /* 缩略框：宽固定，高由 padding-top（比例）决定；图片绝对定位铺满 */
-.ff-media-thumb{position:relative;width:300px;border-radius:8px;overflow:hidden;
-  background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2)}
-.ff-media-thumb img,.ff-media-thumb video{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;background:var(--dsw-alias-bg-base)}
+.ff-media-thumb{position:relative;width:100%;max-width:none;height:auto;border-radius:0;overflow:hidden;
+  background:transparent;border:0}
+.ff-media-thumb img{position:static;display:block;width:100%;height:auto;object-fit:cover}
+.ff-media-thumb video{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;background:var(--dsw-alias-bg-base)}
 .ff-media-thumb.audio{height:64px;display:flex;align-items:center;justify-content:center}
 .ff-media-thumb .ff-media-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   background:rgba(0,0,0,.28);color:#fff;font-size:22px;cursor:pointer;opacity:0;transition:opacity .12s}
@@ -459,6 +525,10 @@ button.ff-btn{background:transparent;font-family:inherit}
 .ff-asset-card .info{padding:7px 9px;display:flex;flex-direction:column;gap:3px}
 .ff-asset-card .t{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ff-asset-card .m{font-size:11px;color:var(--dsw-alias-label-secondary)}
+/* 采用态（2026-11-05）：一个生成单元只有一条被采用，卡片上直接标出来 */
+.ff-asset-card.p{border-color:var(--dsw-alias-brand-primary)}
+.ff-asset-card .ff-asset-acts{display:flex;gap:6px;margin-top:4px;flex-wrap:wrap}
+.ff-asset-card .ff-asset-acts .ff-btn{font-size:10.5px;padding:1px 7px}
 .ff-viewer{position:fixed;inset:0;z-index:64;background:rgba(0,0,0,.86);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
 .ff-viewer img,.ff-viewer video{max-width:86vw;max-height:78vh;border-radius:8px;background:#000}
@@ -501,8 +571,13 @@ td.ff-tbl-span{vertical-align:middle}
 .ff-ref-chip{display:flex;align-items:center;gap:3px;font-size:10.5px;line-height:16px;padding:1px 4px;border-radius:5px;border:1px solid var(--dsw-alias-border-l2);cursor:pointer;max-width:100%}
 .ff-ref-chip:hover{border-color:var(--dsw-alias-brand-primary)}
 .ff-ref-chip img{width:16px;height:16px;object-fit:cover;border-radius:3px;flex:0 0 auto}
+/* 手加素材（素材1、素材2…）：和 agent 提的元素区分开（虚线 + 前缀名），但同样是"参考图" */
+.ff-ref-chip.ff-ref-mat{border-style:dashed}
+.ff-ref-chip.ff-ref-mat span{color:var(--dsw-alias-label-secondary)}
 .ff-ref-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ff-ref-ghost{font-size:10.5px;line-height:16px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-bottom:1px dashed var(--dsw-alias-border-l2)}
+/* 单元级 opt-out（D39）：这个单元不用它 —— 删除线，点一下恢复 */
+.ff-ref-ghost.ff-ref-off{text-decoration:line-through;opacity:.6}
 .ff-ref-ghost:hover{color:var(--dsw-alias-label-primary)}
 .ff-ref-add{font-size:11px;line-height:16px;padding:0 4px;border-radius:5px;border:1px dashed var(--dsw-alias-border-l2);cursor:pointer;color:var(--dsw-alias-label-secondary)}
 .ff-ref-add:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
@@ -1409,6 +1484,59 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				world.style.transform = "translate(" + VIEW.x + "px," + VIEW.y + "px) scale(" + VIEW.s + ")";
 			}
 
+			/*
+			 * 平移 / 缩放（鼠标操作画布）。
+			 * 2026-11-06 补回：这一段在一次补丁事故里整块丢了，表现为「鼠标点画布没反应、滚轮也不缩放」。
+			 */
+			let panDrag = null;
+			const onDown = (e) => {
+				if (e.button !== 1) return;   /* 2026-11-06 用户定：拖拽 = 按住滚轮（中键），左键不拖画布 */
+				if (e.target && e.target.closest && e.target.closest("input, textarea, select, button, [contenteditable='true']")) return;
+				const editing = document.querySelector(".ff-inline-edit, .ff-inline-rename");
+				if (editing) {
+					if (!editing.contains(e.target)) { try { editing.blur(); } catch { /* 忽略 */ } }
+					else { e.stopPropagation(); }
+					panDrag = null;
+					return;
+				}
+				panDrag = { x: e.clientX - VIEW.x, y: e.clientY - VIEW.y };
+				try { stage.classList.add("drag"); } catch { /* 忽略 */ }
+				e.preventDefault();
+			};
+			const onMove = (e) => {
+				if (!panDrag) return;
+				VIEW.x = e.clientX - panDrag.x;
+				VIEW.y = e.clientY - panDrag.y;
+				applyView();
+			};
+			const onUp = () => {
+				if (!panDrag) return;
+				panDrag = null;
+				try { stage.classList.remove("drag"); } catch { /* 忽略 */ }
+			};
+			const onWheel = (e) => {
+				if (e.target && e.target.closest && e.target.closest(".ff-card")) return;
+				if (e.target && e.target.closest && e.target.closest("input, textarea, select, button, [contenteditable='true']")) return;
+				if (document.querySelector(".ff-inline-edit, .ff-inline-rename")) return;
+				e.preventDefault();
+				const k = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+				const ns = Math.max(0.25, Math.min(2.5, VIEW.s * k));
+				const r = stage.getBoundingClientRect();
+				const mx = e.clientX - r.left;
+				const my = e.clientY - r.top;
+				VIEW.x = mx - (mx - VIEW.x) * (ns / VIEW.s);
+				VIEW.y = my - (my - VIEW.y) * (ns / VIEW.s);
+				VIEW.s = ns;
+				applyView();
+			};
+			stage.addEventListener("auxclick", (e) => { if (e.button === 1) e.preventDefault(); });
+			window.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); }, { passive: false });
+			stage.addEventListener("mousedown", onDown);
+			stage.addEventListener("wheel", onWheel, { passive: false });
+			window.addEventListener("mousemove", onMove);
+			window.addEventListener("mouseup", onUp);
+
+
 			/** 适应窗口：整棵树缩进可视区。 */
 			function fit() {
 				const r = world.getBoundingClientRect();
@@ -1615,6 +1743,72 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				} catch (e) {
 					showNote("删行失败：" + String((e && e.message) || e));
 				}
+			}
+
+			/**
+			 * 改一格（用户 2026-11-06：「表格里的文字不能手动更改吗？」）。
+			 * 用「原始整行」在文件里定位，然后整行换掉再整篇写回 —— 跟加行/删行走同一条保存路径。
+			 * @param n - 表格节点
+			 * @param cols - 列定义
+			 * @param row - 这一行的数据（改之前的）
+			 * @param key - 哪一列
+			 * @param value - 新值
+			 */
+			async function tableSetCell(n, cols, row, key, value) {
+				const oldCells = cols.map((c) => String((row && row[c.key]) != null ? row[c.key] : ""));
+				const newCells = cols.map((c, i) => (c.key === key ? String(value == null ? "" : value).replace(/\|/g, "／") : oldCells[i]));
+				if (oldCells.join("\u0001") === newCells.join("\u0001")) return;
+				try {
+					const want = rowNorm("| " + oldCells.join(" | ") + " |");
+					for (const b of mdTableBlocks(n.fileText || "")) {
+						for (let i = b.start; i <= b.end; i++) {
+							if (rowNorm(b.lines[i]) !== want) continue;
+							b.lines[i] = "| " + newCells.join(" | ") + " |";
+							await saveTableText(n, b.lines.join("\n"));
+							showNote("改好了", "ok");
+							return;
+						}
+					}
+					showNote("没在文件里找到这一行（可能刚被别处改过），刷新再看");
+				} catch (e) {
+					showNote("改格子失败：" + String((e && e.message) || e));
+				}
+			}
+
+			/** 双击一格 → 就地变成输入框；回车/失焦保存，Esc 取消。 */
+			function bindCellEdit(td, n, cols, row, key) {
+				td.title = "双击改这一格";
+				td.addEventListener("dblclick", (ev) => {
+					ev.stopPropagation();
+					ev.preventDefault();
+					if (td.querySelector("input")) return;
+					const old = String(td.textContent || "");
+					const inp = el("input", "ff-inline-edit");
+					inp.value = old;
+					inp.style.width = Math.max(80, Math.min(360, td.getBoundingClientRect().width + 40)) + "px";
+					inp.style.fontSize = "11.5px";
+					inp.style.padding = "1px 4px";
+					td.textContent = "";
+					td.append(inp);
+					try { inp.focus(); inp.select(); } catch { /* 忽略 */ }
+					let done = false;
+					const finish = async (save) => {
+						if (done) return;
+						done = true;
+						const v = String(inp.value || "");
+						if (!save || v === old) { td.textContent = old; return; }
+						td.textContent = v;
+						await tableSetCell(n, cols, row, key, v);
+					};
+					inp.addEventListener("mousedown", (e2) => e2.stopPropagation());
+					inp.addEventListener("click", (e2) => e2.stopPropagation());
+					inp.addEventListener("keydown", (e2) => {
+						e2.stopPropagation();
+						if (e2.key === "Enter") { e2.preventDefault(); void finish(true); }
+						else if (e2.key === "Escape") { e2.preventDefault(); void finish(false); }
+					});
+					inp.addEventListener("blur", () => { void finish(true); });
+				});
 			}
 
 			/**
@@ -1846,38 +2040,52 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			/** 素材库选择器：本片已生成的图片，点一张就绑到元素 */
 			function openAssetPicker(n, elementId, replace) {
 				const root = n.root || (current() && current().root) || "";
-				fetch("/filmflow/assets?action=list&root=" + encodeURIComponent(root), { headers: { accept: "application/json" } })
-					.then((r) => r.json())
-					.then((j) => {
-						const imgs = (j.items || []).filter((x) => String(x.type) === "image");
+				Promise.all([fetchGlobalImages(), fetchRoleImages()])
+					.then(([imgs, roles]) => {
 						const wrap = el("div", "ff-refs-panel");
 						const box = el("div", "box");
 						const head = el("div", "row");
-						head.append(el("div", "grow", "素材库 · 本片已生成的图（" + imgs.length + " 张）"));
+						head.append(el("div", "grow", "素材库 · 全库图片（" + imgs.length + " 张，角色库 " + roles.length + "）"));
 						const bClose = el("div", "ff-btn", "关闭");
 						bClose.addEventListener("click", () => wrap.remove());
 						head.append(bClose);
 						box.append(head);
+						const bindIt = (it) => {
+							refPost(n, { action: "fromAsset", id: elementId, src: it.src, replace: !!replace, fromRoot: it.root || root })
+								.then(() => { wrap.remove(); return refreshAfterRefs(); })
+								.catch((e) => showNote(String((e && e.message) || e)));
+						};
+						const mkGrid = (list) => {
+							const grid = el("div", "ff-ref-pick-grid");
+							for (const it of list) {
+								const cell = el("div", "ff-ref-pick-item");
+								const im = el("img");
+								im.src = assetFileUrl(it);
+								const lab = it.role && it.role.name
+									? "★ " + String(it.role.name)
+									: String(it.film || "") + "　" + String(it.nodeTitle || it.node || "");
+								cell.append(im, el("div", "lab", lab));
+								cell.title = String(it.src) + (it.film && String(it.root) !== root ? "（来自 " + it.film + "，会复制一份进本片）" : "");
+								cell.addEventListener("click", () => bindIt(it));
+								grid.append(cell);
+							}
+							return grid;
+						};
 						if (!imgs.length) {
 							const empty = el("div", "row");
-							empty.append(el("div", "grow", "这片还没生成过图片（视频/音频不能当参考图）"));
+							empty.append(el("div", "grow", "全库还没有图片（视频/音频不能当参考图）"));
 							box.append(empty);
 						}
-						const grid = el("div", "ff-ref-pick-grid");
-						for (const it of imgs) {
-							const cell = el("div", "ff-ref-pick-item");
-							const im = el("img");
-							im.src = "/filmflow/assets?action=file&root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent(it.src);
-							cell.append(im, el("div", "lab", String(it.node || "") + "　" + String(it.at || "").slice(0, 10)));
-							cell.title = it.src;
-							cell.addEventListener("click", () => {
-								refPost(n, { action: "fromAsset", id: elementId, src: it.src, replace: !!replace })
-									.then(() => { wrap.remove(); return refreshAfterRefs(); })
-									.catch((e) => showNote(String((e && e.message) || e)));
-							});
-							grid.append(cell);
+						if (roles.length) {
+							box.append(el("div", "row", "角色库"));
+							box.append(mkGrid(roles));
 						}
-						if (imgs.length) box.append(grid);
+						const roleIds = new Set(roles.map((x) => String(x.root) + "|" + String(x.id)));
+						const others = imgs.filter((x) => !roleIds.has(String(x.root) + "|" + String(x.id)));
+						if (others.length) {
+							box.append(el("div", "row", "全部项目"));
+							box.append(mkGrid(others));
+						}
 						wrap.append(box);
 						wrap.addEventListener("click", (ev) => { if (ev.target === wrap) wrap.remove(); });
 						document.body.append(wrap);
@@ -1885,34 +2093,315 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					.catch((e) => showNote("素材库打不开：" + String((e && e.message) || e)));
 			}
 
+			/**
+			 * ⛔ 已停用（B57，2026-11-05）：「新建自定义元素」这件事本身被用户否掉了 ——
+			 * 元素只由 agent 分析产出；用户能加的是**素材**（见 refsCell 里的 `＋ → askMaterial`）。
+			 * 下面这几个函数（askElementForm / bindPickedImage / openRefPickMenu）已经**没有调用点**，
+			 * 别再接线；要清理就整块删掉。
+			 */
+			/**
+			 * 新建元素的小表单：名字 + 种类 + **素材**（本地图片 / 素材库里任意项目的图）。
+			 *
+			 * 为什么素材必须在这个框里：用户点「新建元素」的目的就是"加一份参考资料"，
+			 * 只收名字等于把功能做成半截（2026-11-05 用户两次指出："什么都有却没有素材选择"）。
+			 * 为什么不用 `window.prompt`：Electron 不支持，调用直接抛（B54）。
+			 *
+			 * @returns {Promise<{name:string, kind:string, image:null|{type:'asset',item:object}|{type:'files',files:File[]}}|null>}
+			 */
+			function askElementForm() {
+				return new Promise((resolve) => {
+					let picked = null;   /* null | {type:'asset', item} | {type:'files', files} */
+					const wrap = el("div", "ff-refs-panel");
+					const box = el("div", "box");
+					const head = el("div", "row");
+					head.append(el("div", "grow", "新建参考元素"));
+					box.append(head);
+
+					const rowName = el("div", "row");
+					const inp = el("input", "ff-inline-edit");
+					inp.placeholder = "元素名（例如：唐老板 / A室）";
+					rowName.append(inp);
+					box.append(rowName);
+
+					const rowKind = el("div", "row");
+					const sel = el("select", "ff-tbl-psel");
+					for (const pair of [["person", "人物"], ["scene", "场景"], ["prop", "道具"], ["look", "画风/影调"]]) {
+						const o = el("option", undefined, pair[1]);
+						o.value = pair[0];
+						sel.append(o);
+					}
+					sel.style.width = "150px";
+					sel.style.flex = "0 0 auto";
+					rowKind.append(el("div", undefined, "种类"), sel);
+					box.append(rowKind);
+
+					/* 素材：本地文件 / 素材库（角色库 + 全部项目），选完先在这里看缩略图 */
+					const rowImg = el("div", "row");
+					const imgState = el("div", "grow", "素材：未选");
+					const bLocal = el("div", "ff-btn", "选本地图片…");
+					const bLib = el("div", "ff-btn", "从素材库选…");
+					rowImg.append(imgState, bLocal, bLib);
+					box.append(rowImg);
+
+					const area = el("div");
+					area.style.display = "flex";
+					area.style.flexDirection = "column";
+					area.style.gap = "8px";
+					box.append(area);
+
+					const showPicked = () => {
+						area.textContent = "";
+						if (!picked) { imgState.textContent = "素材：未选（先建也行，之后点格子里的浅字再选图）"; return; }
+						const row = el("div", "row");
+						const im = el("img");
+						im.style.width = "54px";
+						im.style.height = "54px";
+						im.style.objectFit = "cover";
+						im.style.borderRadius = "6px";
+						if (picked.type === "asset") {
+							im.src = assetFileUrl(picked.item);
+							const nm = picked.item.role && picked.item.role.name
+								? "★ " + String(picked.item.role.name)
+								: String(picked.item.film || "") + " " + String(picked.item.nodeTitle || picked.item.node || "");
+							imgState.textContent = "素材：" + nm;
+						} else {
+							im.src = URL.createObjectURL(picked.files[0]);
+							imgState.textContent = "素材：本地 " + picked.files.map((f) => f.name).join("、");
+						}
+						const bClear = el("div", "ff-btn", "不要了");
+						bClear.addEventListener("click", () => { picked = null; showPicked(); });
+						row.append(im, el("div", "grow", ""), bClear);
+						area.append(row);
+					};
+
+					bLocal.addEventListener("click", () => {
+						pickImageFiles((files) => { picked = { type: "files", files }; showPicked(); });
+					});
+
+					bLib.addEventListener("click", () => {
+						area.textContent = "读取素材库…";
+						Promise.all([fetchGlobalImages(), fetchRoleImages()])
+							.then(([imgs, roles]) => {
+								area.textContent = "";
+								const roleIds = new Set(roles.map((x) => String(x.root) + "|" + String(x.id)));
+								const others = imgs.filter((x) => !roleIds.has(String(x.root) + "|" + String(x.id)));
+								const mkGrid = (list) => {
+									const grid = el("div", "ff-ref-pick-grid");
+									for (const it of list) {
+										const cell = el("div", "ff-ref-pick-item");
+										const im = el("img");
+										im.src = assetFileUrl(it);
+										cell.append(im, el("div", "lab", it.role && it.role.name
+											? "★ " + String(it.role.name)
+											: String(it.film || "") + " " + String(it.nodeTitle || it.node || "")));
+										cell.title = String(it.src);
+										cell.addEventListener("click", () => { picked = { type: "asset", item: it }; showPicked(); });
+										grid.append(cell);
+									}
+									return grid;
+								};
+								if (roles.length) {
+									area.append(el("div", "row", "角色库（" + roles.length + "）"));
+									area.append(mkGrid(roles));
+								}
+								if (others.length) {
+									area.append(el("div", "row", "全部素材（" + others.length + "）"));
+									area.append(mkGrid(others));
+								}
+								if (!roles.length && !others.length) area.append(el("div", "row", "全库还没有图片，先用「选本地图片…」"));
+							})
+							.catch((e) => { area.textContent = "素材库打不开：" + String((e && e.message) || e); });
+					});
+
+					const rowBtn = el("div", "row");
+					const bOk = el("div", "ff-btn", "确定");
+					const bNo = el("div", "ff-btn", "取消");
+					rowBtn.append(bOk, bNo);
+					box.append(rowBtn);
+
+					wrap.append(box);
+					let closed = false;
+					const done = (v) => {
+						if (closed) return;
+						closed = true;
+						document.removeEventListener("keydown", onKey, true);
+						wrap.remove();
+						resolve(v);
+					};
+					const onKey = (ev) => {
+						if (ev.key === "Escape") { ev.stopPropagation(); done(null); }
+					};
+					bOk.addEventListener("click", () => {
+						const name = String(inp.value || "").trim();
+						if (!name) { inp.focus(); showNote("先给元素起个名字"); return; }
+						done({ name, kind: String(sel.value || "person"), image: picked });
+					});
+					bNo.addEventListener("click", () => done(null));
+					wrap.addEventListener("click", (ev) => { if (ev.target === wrap) done(null); });
+					inp.addEventListener("keydown", (ev) => {
+						if (ev.key !== "Enter") return;
+						ev.preventDefault();
+						bOk.click();
+					});
+					document.addEventListener("keydown", onKey, true);
+					document.body.append(wrap);
+					setTimeout(() => inp.focus(), 0);
+				});
+			}
+
+			/** 把表单里选好的图绑到元素（素材库 → fromAsset；本地文件 → 上传到 素材/ 再绑）。 */
+			async function bindPickedImage(n, elementId, pick) {
+				if (!pick) return false;
+				if (pick.type === "asset") {
+					await refPost(n, { action: "fromAsset", id: elementId, src: pick.item.src, replace: true, fromRoot: pick.item.root || "" });
+					return true;
+				}
+				if (pick.type === "files") {
+					await uploadRefs(n, elementId, pick.files, true);
+					return true;
+				}
+				return false;
+			}
+
+			/** 素材文件 URL（素材可能来自别的片，root 要用它自己的） */
+			function assetFileUrl(it) {
+				const r = String((it && it.root) || "").replace(/\\/g, "/");
+				return "/filmflow/assets?action=file&root=" + encodeURIComponent(r) + "&p=" + encodeURIComponent(String((it && it.src) || ""));
+			}
+
+			/** 全库图片（所有项目）。用户 2026-11-05：片里选素材看到的就是全局素材库。 */
+			async function fetchGlobalImages() {
+				const j = await (await fetch("/filmflow/assets?action=list", { headers: { accept: "application/json" } })).json();
+				return (j.items || []).filter((x) => String(x.type) === "image");
+			}
+
+			/** 角色库：挂了 role.name 的素材（跨项目）。只是素材上的标签，元素数据不变。 */
+			async function fetchRoleImages() {
+				const j = await (await fetch("/filmflow/assets?action=roles", { headers: { accept: "application/json" } })).json();
+				return (j.items || []).filter((x) => String(x.type) === "image");
+			}
+
+			/**
+			 * 给某个元素**选图**（居中面板）。
+			 *
+			 * 为什么不是格子里的弹出菜单：新建元素之后表格会重画，旧的 `<td>` 已经不在了，
+			 * 菜单挂上去看不见 —— 用户就会看到"建完了但没地方加图"（2026-11-05）。
+			 * 这里不依赖格子，选完（本地文件 / 素材库里的成片）就绑定、全片生效。
+			 *
+			 * @param {object} n 表格节点
+			 * @param {string} elementId 元素 id
+			 * @param {boolean} replace true=换图（替换已有），false=追加
+			 * @param {string} label 显示用的元素名
+			 */
+			function askRefImage(n, elementId, replace, label) {
+				const root = n.root || (current() && current().root) || "";
+				const wrap = el("div", "ff-refs-panel");
+				const box = el("div", "box");
+				const head = el("div", "row");
+				head.append(el("div", "grow", "给「" + String(label || "这个元素") + "」选参考图"));
+				const bLater = el("div", "ff-btn", "稍后再说");
+				head.append(bLater);
+				box.append(head);
+
+				const tip = el("div", "row");
+				tip.append(el("div", "grow", "图会绑到这个元素上，全片生效（一个元素只配一次）"));
+				box.append(tip);
+
+				const rowBtn = el("div", "row");
+				const bLocal = el("div", "ff-btn", "选本地图片…");
+				const bLib = el("div", "ff-btn", "从素材库选（已生成的图）…");
+				rowBtn.append(bLocal, bLib);
+				box.append(rowBtn);
+
+				const area = el("div");
+				area.style.display = "flex";
+				area.style.flexDirection = "column";
+				area.style.gap = "8px";
+				box.append(area);
+
+				wrap.append(box);
+				const close = () => wrap.remove();
+				bLater.addEventListener("click", close);
+				wrap.addEventListener("click", (ev) => { if (ev.target === wrap) close(); });
+
+				bLocal.addEventListener("click", () => {
+					pickImageFiles((files) => {
+						uploadRefs(n, elementId, files, replace)
+							.then(() => close())
+							.catch((e) => showNote(String((e && e.message) || e)));
+					});
+				});
+
+				bLib.addEventListener("click", () => {
+					area.textContent = "读取素材库…";
+					/* 素材库是**全局**的（用户 2026-11-05：片里选素材不该过滤掉别的项目） */
+					Promise.all([fetchGlobalImages(), fetchRoleImages()])
+						.then(([imgs, roles]) => {
+							area.textContent = "";
+							const roleIds = new Set(roles.map((x) => String(x.root) + "|" + String(x.id)));
+							const others = imgs.filter((x) => !roleIds.has(String(x.root) + "|" + String(x.id)));
+							const mkGrid = (list) => {
+								const grid = el("div", "ff-ref-pick-grid");
+								for (const it of list) {
+									const cell = el("div", "ff-ref-pick-item");
+									const im = el("img");
+									im.src = assetFileUrl(it);
+									const lab = it.role && it.role.name
+										? "★ " + String(it.role.name)
+										: String(it.film || "") + "　" + String(it.nodeTitle || it.node || "") + "　" + String(it.at || "").slice(5, 10);
+									cell.append(im, el("div", "lab", lab));
+									cell.title = String(it.src) + (it.film ? "（来自 " + it.film + "，会复制一份进本片）" : "");
+									cell.addEventListener("click", () => {
+										refPost(n, { action: "fromAsset", id: elementId, src: it.src, replace: !!replace, fromRoot: it.root || root })
+											.then(() => { close(); return refreshAfterRefs(); })
+											.catch((e) => showNote(String((e && e.message) || e)));
+									});
+									grid.append(cell);
+								}
+								return grid;
+							};
+							if (roles.length) {
+								area.append(el("div", "row", "角色库（" + roles.length + "）"));
+								area.append(mkGrid(roles));
+							}
+							if (others.length) {
+								area.append(el("div", "row", "全部素材（" + others.length + "）"));
+								area.append(mkGrid(others));
+							}
+							if (!roles.length && !others.length) {
+								area.append(el("div", "row", "全库还没有图片（视频/音频不能当参考图），先用「选本地图片…」"));
+							}
+						})
+						.catch((e) => { area.textContent = "素材库打不开：" + String((e && e.message) || e); });
+				});
+
+				document.body.append(wrap);
+			}
+
 			/** 点 ＋：从本组元素里挑一个来绑（或新建元素） */
 			function openRefPickMenu(td, n, refs, unit) {
 				const items = refs.map((r) => ({
-					label: ((r.images || []).length ? "换图：" : "绑图：") + String(r.name || ""),
+					label: ((r.images || []).length ? "换图：" : "选图：") + String(r.name || ""),
 					fn: () => chooseRefSource(td, n, r.id, (r.images || []).length > 0),
 				}));
 				items.push({
 					label: "＋ 新建元素…",
-					fn: () => {
-						const name = String(window.prompt("元素名（例如：唐老板 / A室）") || "").trim();
-						if (!name) return;
-						const kindRaw = String(window.prompt("种类：person / scene / prop / look", "person") || "person").trim();
-						const kind = ["person", "scene", "prop", "look"].includes(kindRaw) ? kindRaw : "person";
-						/* 新元素必须挂到这一格上（shots = 本组的镜号），否则它在表里没有落脚点：
-						   建完看不到、也绑不了图（2026-11-04 修）。刷完再点它自己的格子接上选图。 */
+					fn: async () => {
+						const got = await askElementForm();
+						if (!got) return;
+						const name = got.name;
+						const kind = got.kind;
+						/* 新元素必须挂到这一格上（shots = 本组的镜号），否则它在表里没有落脚点。
+						   图在表单里就选好了（`got.image`），这里只负责落库 + 绑定。 */
 						const shots = (unit && Array.isArray(unit.covers)) ? unit.covers.map(String) : [];
 						refPost(n, { action: "add", name, kind, shots })
-							.then(async () => {
-								await refreshAfterRefs();
-								/* 重画之后 td 已经是旧的，不能挂菜单：直接点新格子里它的名字。
-								   点到了就走正常路径（浅字 → 选来源），点不到多半是这组没匹配上镜号。 */
-								for (let i = 0; i < 40; i++) {
-									const g = Array.from(document.querySelectorAll(".ff-ref-ghost, .ff-ref-chip"))
-										.find((x) => x.textContent.trim() === name);
-									if (g) { g.click(); return; }
-									await new Promise((r) => setTimeout(r, 120));
+							.then(async (j) => {
+								const el0 = ((j && j.elements) || []).find((x) => String(x.name) === name);
+								if (el0 && got.image) {
+									try { await bindPickedImage(n, el0.id, got.image); } catch (e) { showNote(String((e && e.message) || e)); }
 								}
-								showNote("新建了「" + name + "」，但这一组里没有它的格子；去素材库面板给它绑图");
+								await refreshAfterRefs();
+								if (!got.image) showNote("已建「" + name + "」，还没有图：点格子里的浅字随时选图");
 							})
 							.catch((e) => showNote(String((e && e.message) || e)));
 					},
@@ -1921,47 +2410,65 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			}
 
 			/** 点已绑的 chip：换图 / 解绑 / 不用参考 / 看大图 */
-			function openRefChipMenu(td, n, r) {
+			function openRefChipMenu(td, n, r, unit) {
 				const root = n.root || (current() && current().root) || "";
 				const url = "/filmflow/refs/file?root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent((r.images || [])[0] || "");
 				openRefMenu(td, [
 					{ label: "看大图", fn: () => window.open(url, "_blank") },
 					{ label: "换图（全片生效）", fn: () => chooseRefSource(td, n, r.id, true) },
 					{ label: "解绑这个元素", fn: () => { refPost(n, { action: "unbind", id: r.id }).then(() => refreshAfterRefs()).catch((e) => showNote(String((e && e.message) || e))); } },
+					/* 单元级：全片照用，但**这一个单元**不要它（D39） */
+					unit ? {
+						label: "这个单元不用它",
+						fn: () => { refPost(n, { action: "unitOptOut", unitId: String(unit.id), elementId: String(r.id), off: true }).then(() => refreshAfterRefs()).catch((e) => showNote(String((e && e.message) || e))); },
+					} : null,
 					{ label: "这片不用它的参考", fn: () => { refPost(n, { action: "skip", id: r.id, skip: true }).then(() => refreshAfterRefs()).catch((e) => showNote(String((e && e.message) || e))); } },
-				]);
+				].filter(Boolean));
 			}
 
 			/** 素材格：一个单元一格（并组时竖跨） */
+			/**
+			 * 素材格：元素（agent 提的）+ 用户手加的素材（素材1、素材2…）。
+			 *
+			 * 用户 2026-11-05 重新定义：
+			 *   · 元素只由 agent 提（浅字），点浅字 = 给它选图，绑一次全片生效；
+			 *   · **加号只加素材**（不是新建元素）：加完系统自动标「素材N」，同一张图全片同号；
+			 *   · 素材没有语义（没有种类、没有名字含义），用途由用户自己在提示词里写。
+			 */
 			function refsCell(n, unit, spanN) {
 				const td = el("td", "ff-tbl-pcell ff-tbl-prefs");
 				if (spanN > 1) td.rowSpan = spanN;
 				td.style.position = "relative";
 				const box = el("div", "ff-refs");
 				const refs = ((unit && Array.isArray(unit.refs)) ? unit.refs : []).filter((r) => r.state !== "skip");
+				const mats = ((unit && Array.isArray(unit.materials)) ? unit.materials : []);
 				if (!unit) {
 					td.append(el("div", "ff-ref-ghost", "（没有生成单元，先分组）"));
-					return td;
-				}
-				if (!refs.length) {
-					/* 没识别到元素也留入口：手动加一个元素再绑图 */
-					const add0 = el("div", "ff-ref-add", "＋");
-					add0.title = "这一组还没识别到元素；点这里新建一个再绑图";
-					add0.addEventListener("click", (ev) => { ev.stopPropagation(); openRefPickMenu(td, n, [], unit); });
-					box.append(add0);
-					td.append(box);
 					return td;
 				}
 				const root = n.root || (current() && current().root) || "";
 				for (const r of refs) {
 					const imgs = r.images || [];
+					if (r.off) {
+						/* 这个单元明确不用它：删除线浅字，点一下可以恢复 */
+						const g0 = el("div", "ff-ref-ghost ff-ref-off", String(r.name || ""));
+						g0.title = "这个单元不用「" + String(r.name || "") + "」的参考图；点一下恢复";
+						g0.addEventListener("click", (ev) => {
+							ev.stopPropagation();
+							openRefMenu(td, [
+								{ label: "恢复使用", fn: () => { refPost(n, { action: "unitOptOut", unitId: String(unit.id), elementId: String(r.id), off: false }).then(() => refreshAfterRefs()).catch((e) => showNote(String((e && e.message) || e))); } },
+							]);
+						});
+						box.append(g0);
+						continue;
+					}
 					if (imgs.length) {
 						const chip = el("div", "ff-ref-chip");
 						const im = el("img");
 						im.src = "/filmflow/refs/file?root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent(imgs[0]);
 						chip.append(im, el("span", undefined, String(r.name || "")));
 						chip.title = String(r.name || "") + (imgs.length > 1 ? "（" + imgs.length + " 张）" : "") + " · 全片生效；点一下换图/解绑";
-						chip.addEventListener("click", (ev) => { ev.stopPropagation(); openRefChipMenu(td, n, r); });
+						chip.addEventListener("click", (ev) => { ev.stopPropagation(); openRefChipMenu(td, n, r, unit); });
 						box.append(chip);
 					} else {
 						const g = el("div", "ff-ref-ghost", String(r.name || ""));
@@ -1973,12 +2480,241 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						box.append(g);
 					}
 				}
+				/* 手加素材：编号一律显示，点击可换图 / 从这几镜撤掉 */
+				for (const m of mats) {
+					const chip = el("div", "ff-ref-chip ff-ref-mat");
+					const im = el("img");
+					im.src = "/filmflow/refs/file?root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent(m.image);
+					chip.append(im, el("span", undefined, String(m.label || "素材")));
+					chip.title = String(m.label || "") + " · 手加素材（用途写在提示词里）；点一下换图/撤掉";
+					chip.addEventListener("click", (ev) => { ev.stopPropagation(); openMaterialMenu(td, n, unit, m); });
+					box.append(chip);
+				}
 				const add = el("div", "ff-ref-add", "＋");
-				add.title = "给这一组的元素绑图（绑一次，全片生效）";
-				add.addEventListener("click", (ev) => { ev.stopPropagation(); openRefPickMenu(td, n, refs, unit); });
+				add.title = "添加素材（本地图片 / 素材库任意项目的图），系统自动标 素材1、素材2…";
+				add.addEventListener("click", (ev) => { ev.stopPropagation(); askMaterial(n, unit); });
 				box.append(add);
 				td.append(box);
 				return td;
+			}
+
+			/** 点手加素材：换图 / 从这几镜撤掉 */
+			function openMaterialMenu(td, n, unit, m) {
+				openRefMenu(td, [
+					{ label: "换图（编号不变）", fn: () => askMaterial(n, unit, m) },
+					{
+						label: "从这几镜撤掉",
+						fn: () => {
+							refPost(n, { action: "dropMaterial", id: m.id, shots: (unit && unit.covers) || [] })
+								.then(() => refreshAfterRefs())
+								.catch((e) => showNote(String((e && e.message) || e)));
+						},
+					},
+				]);
+			}
+
+			/**
+			 * 图片节点上传参考图（D39）：本地图片 / 素材库全库（含角色库）。
+			 * 图进节点后由宿主同步到元素绑定，表格里的 chip 与提示词自动跟着变。
+			 */
+			function openImageNodePicker(n) {
+				const root = n.root || (current() && current().root) || "";
+				const wrap = el("div", "ff-refs-panel");
+				const box = el("div", "box");
+				const head = el("div", "row");
+				head.append(el("div", "grow", "给「" + String(n.title || "图片节点") + "」加参考图"));
+				const bClose = el("div", "ff-btn", "关闭");
+				bClose.addEventListener("click", () => wrap.remove());
+				head.append(bClose);
+				box.append(head);
+
+				const area = el("div");
+				area.style.display = "flex";
+				area.style.flexDirection = "column";
+				area.style.gap = "8px";
+				box.append(area);
+
+				const rowBtn = el("div", "row");
+				const bLocal = el("div", "ff-btn", "选本地图片…");
+				const bLib = el("div", "ff-btn", "从素材库选…");
+				rowBtn.append(bLocal, bLib);
+				box.append(rowBtn);
+
+				wrap.append(box);
+				wrap.addEventListener("click", (ev) => { if (ev.target === wrap) wrap.remove(); });
+				document.body.append(wrap);
+
+				const addOne = async (src, fromRoot) => {
+					await post("/filmflow/media-node", { root, key: n.key, action: "add", src, fromRoot: fromRoot || root });
+				};
+
+				bLocal.addEventListener("click", () => {
+					pickImageFiles((files) => {
+						(async () => {
+							for (const f of files) {
+								if (f.size > 12 * 1024 * 1024) { showNote("这张太大（上限 12MB）：" + f.name); continue; }
+								const dataUrl = await new Promise((res, rej) => {
+									const fr = new FileReader();
+									fr.onload = () => res(String(fr.result || ""));
+									fr.onerror = () => rej(new Error("读图失败：" + f.name));
+									fr.readAsDataURL(f);
+								});
+								const r = await post("/filmflow/refs", { root, action: "upload", name: f.name, dataUrl });
+								if (r && r.path) await addOne(r.path, root);
+							}
+							wrap.remove();
+							SIG.tree = "";
+							await load();
+						})().catch((e) => showNote(String((e && e.message) || e)));
+					});
+				});
+
+				bLib.addEventListener("click", () => {
+					area.textContent = "读取素材库…";
+					Promise.all([fetchGlobalImages(), fetchRoleImages()])
+						.then(([imgs, roles]) => {
+							area.textContent = "";
+							const roleIds = new Set(roles.map((x) => String(x.root) + "|" + String(x.id)));
+							const others = imgs.filter((x) => !roleIds.has(String(x.root) + "|" + String(x.id)));
+							const mkGrid = (list) => {
+								const grid = el("div", "ff-ref-pick-grid");
+								for (const it of list) {
+									const cell = el("div", "ff-ref-pick-item");
+									const im = el("img");
+									im.src = assetFileUrl(it);
+									cell.append(im, el("div", "lab", it.role && it.role.name
+										? "★ " + String(it.role.name)
+										: String(it.film || "") + " " + String(it.nodeTitle || it.node || "")));
+									cell.title = String(it.src);
+									cell.addEventListener("click", () => {
+										(async () => {
+											await addOne(it.src, it.root || root);
+											wrap.remove();
+											SIG.tree = "";
+											await load();
+										})().catch((e) => showNote(String((e && e.message) || e)));
+									});
+									grid.append(cell);
+								}
+								return grid;
+							};
+							if (roles.length) {
+								area.append(el("div", "row", "角色库（" + roles.length + "）"));
+								area.append(mkGrid(roles));
+							}
+							if (others.length) {
+								area.append(el("div", "row", "全部素材（" + others.length + "）"));
+								area.append(mkGrid(others));
+							}
+							if (!roles.length && !others.length) area.append(el("div", "row", "全库还没有图片，先用「选本地图片…」"));
+						})
+						.catch((e) => { area.textContent = "素材库打不开：" + String((e && e.message) || e); });
+				});
+			}
+
+			/**
+			 * 加素材：选本地图片 / 从素材库（全库 + 角色库）选 → 系统自动编号「素材N」。
+			 * @param {object} n 表格节点
+			 * @param {object} unit 生成单元（决定挂到哪些镜号）
+			 * @param {object} [replace] 已有素材：换图（先撤旧图再加，编号不变）
+			 */
+			function askMaterial(n, unit, replace) {
+				const root = n.root || (current() && current().root) || "";
+				const shots = (unit && unit.covers) || [];
+				const wrap = el("div", "ff-refs-panel");
+				const box = el("div", "box");
+				const head = el("div", "row");
+				head.append(el("div", "grow", replace
+					? ("换图：" + String(replace.label || "") + "（编号不变）")
+					: ("添加素材 · 镜 " + shots.join("/"))));
+				const bClose = el("div", "ff-btn", "关闭");
+				bClose.addEventListener("click", () => wrap.remove());
+				head.append(bClose);
+				box.append(head);
+
+				const area = el("div");
+				area.style.display = "flex";
+				area.style.flexDirection = "column";
+				area.style.gap = "8px";
+				box.append(area);
+
+				const rowBtn = el("div", "row");
+				const bLocal = el("div", "ff-btn", "选本地图片…");
+				const bLib = el("div", "ff-btn", "从素材库选…");
+				rowBtn.append(bLocal, bLib);
+				box.append(rowBtn);
+
+				wrap.append(box);
+				wrap.addEventListener("click", (ev) => { if (ev.target === wrap) wrap.remove(); });
+				document.body.append(wrap);
+
+				bLocal.addEventListener("click", () => {
+					pickImageFiles((files) => {
+						(async () => {
+							const made = [];
+							for (const f of files) {
+								if (f.size > 12 * 1024 * 1024) { showNote("这张太大（上限 12MB）：" + f.name); continue; }
+								const dataUrl = await new Promise((res, rej) => {
+									const fr = new FileReader();
+									fr.onload = () => res(String(fr.result || ""));
+									fr.onerror = () => rej(new Error("读图失败：" + f.name));
+									fr.readAsDataURL(f);
+								});
+								const r = await post("/filmflow/refs", { root, action: "upload", name: f.name, dataUrl });
+								if (r && r.path) made.push(r.path);
+							}
+							for (const p of made) {
+								if (replace) await refPost(n, { action: "dropMaterial", id: replace.id, shots }).catch(() => null);
+								await refPost(n, { action: "addMaterial", src: p, shots });
+							}
+							wrap.remove();
+							showNote("已加素材：" + made.length + " 张", "ok");
+							await refreshAfterRefs();
+						})().catch((e) => showNote(String((e && e.message) || e)));
+					});
+				});
+
+				bLib.addEventListener("click", () => {
+					area.textContent = "读取素材库…";
+					Promise.all([fetchGlobalImages(), fetchRoleImages()])
+						.then(([imgs, roles]) => {
+							area.textContent = "";
+							const roleIds = new Set(roles.map((x) => String(x.root) + "|" + String(x.id)));
+							const others = imgs.filter((x) => !roleIds.has(String(x.root) + "|" + String(x.id)));
+							const mkGrid = (list) => {
+								const grid = el("div", "ff-ref-pick-grid");
+								for (const it of list) {
+									const cell = el("div", "ff-ref-pick-item");
+									const im = el("img");
+									im.src = assetFileUrl(it);
+									cell.append(im, el("div", "lab", it.role && it.role.name
+										? "★ " + String(it.role.name)
+										: String(it.film || "") + " " + String(it.nodeTitle || it.node || "")));
+									cell.title = String(it.src);
+									cell.addEventListener("click", () => {
+										(async () => {
+											if (replace) await refPost(n, { action: "dropMaterial", id: replace.id, shots }).catch(() => null);
+											await refPost(n, { action: "addMaterial", src: it.src, fromRoot: it.root || root, shots });
+											wrap.remove();
+											await refreshAfterRefs();
+										})().catch((e) => showNote(String((e && e.message) || e)));
+									});
+									grid.append(cell);
+								}
+								return grid;
+							};
+							if (roles.length) {
+								area.append(el("div", "row", "角色库（" + roles.length + "）"));
+								area.append(mkGrid(roles));
+							}
+							if (others.length) {
+								area.append(el("div", "row", "全部素材（" + others.length + "）"));
+								area.append(mkGrid(others));
+							}
+							if (!roles.length && !others.length) area.append(el("div", "row", "全库还没有图片，先用「选本地图片…」"));
+						})
+						.catch((e) => { area.textContent = "素材库打不开：" + String((e && e.message) || e); });
+				});
 			}
 
 			/** 素材库：全片元素一览（绑/解绑/不用/新建/自动匹配） */
@@ -1990,20 +2726,13 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						const wrap = el("div", "ff-refs-panel");
 						const box = el("div", "box");
 						const head = el("div", "row");
-						head.append(el("div", "grow", "素材库 · 绑一次全片生效（" + (j.elements || []).length + " 个元素）"));
+						head.append(el("div", "grow", "素材库 · 元素（agent 提的）绑一次全片生效（" + (j.elements || []).length + " 个）"));
 						const bAuto = el("div", "ff-btn", "自动匹配同名图");
 						bAuto.addEventListener("click", () => { refPost(n, { action: "autobind" }).then(() => { wrap.remove(); openRefsPanel(n); }).catch((e) => showNote(String((e && e.message) || e))); });
-						const bNew = el("div", "ff-btn", "＋ 新元素");
-						bNew.addEventListener("click", () => {
-							const name = String(window.prompt("元素名（例如：唐老板 / A室）") || "").trim();
-							if (!name) return;
-							const kindRaw = String(window.prompt("种类：person / scene / prop / look", "person") || "person").trim();
-							const kind = ["person", "scene", "prop", "look"].includes(kindRaw) ? kindRaw : "person";
-							refPost(n, { action: "add", name, kind }).then(() => { wrap.remove(); openRefsPanel(n); }).catch((e) => showNote(String((e && e.message) || e)));
-						});
+						/* 没有「＋ 新元素」：元素只由 agent 提，用户加的是素材（表格里的 ＋） */
 						const bClose = el("div", "ff-btn", "关闭");
 						bClose.addEventListener("click", () => wrap.remove());
-						head.append(bAuto, bNew, bClose);
+						head.append(bAuto, bClose);
 						box.append(head);
 						for (const elx of (j.elements || [])) {
 							const row = el("div", "row");
@@ -2013,7 +2742,7 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 								im.src = "/filmflow/refs/file?root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent(imgs[0]);
 								row.append(im);
 							}
-							row.append(el("div", "grow", String(elx.name || "") + "　[" + String(elx.kind || "") + "]　"
+							row.append(el("div", "grow", String(elx.name || "") + "　"
 								+ (imgs.length ? imgs.length + " 张" : "未绑") + "　· " + (elx.units || []).length + " 个单元"));
 							const bBind = el("div", "ff-btn", imgs.length ? "换图" : "绑图");
 							bBind.addEventListener("click", () => pickImageFiles((files) => {
@@ -2241,7 +2970,11 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					const spanCells = new Map(); // unitId → [生成格, 预览格]，详情展开时要跟着加 rowSpan
 					for (const row of g.rows || []) {
 						const tr = el("tr", "ff-tbl-row");
-						for (const c of cols) tr.append(el("td", undefined, String((row && row[c.key]) ?? "")));
+						for (const c of cols) {
+							const td = el("td", undefined, String((row && row[c.key]) ?? ""));
+							bindCellEdit(td, n, cols, row, c.key);
+							tr.append(td);
+						}
 						const noU = String((row && row.no) != null ? row.no : "").trim();
 						const gsU = genRows ? (genRows[noU] || null) : null;
 						const uidAll = String((gsU && gsU.unit) || "");
@@ -2254,6 +2987,8 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						 * agent 把清晰度改成 720p，单镜那些行永远显示旧值、点了也没用。
 						 */
 						const uU = uidAll ? (unitMap.get(uidAll) || null) : null;
+						/* 连接线锚点：这一行属于哪个生成单元（D39，客户端按它算线的终点 y） */
+						if (uU) tr.dataset.unit = String(uU.id);
 						const spanN0 = uU ? Math.max(1, (uU.covers || []).length) : 1;
 						const spanList = []; /* 本行的竖跨格（参数/生成/预览），详情展开时要一起加 rowSpan */
 						/* 行尾操作格：▶ 生成（并组时只有组首那一行有） + ✕ 删行 */
@@ -2517,73 +3252,11 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				}
 
 				/*
-				 * 折叠：默认只露 10 行，滚轮在框里滚；左键点一下全展开（再点收回去）。
-				 * 2026-11-03 用户：「改成默认十行，鼠标放上面可以滚动，左键点击一下就全展开」
+				 * 2026-11-06 用户：「把表格收起功能去掉」
+				 * ⇒ 不再折成 10 行、不再有展开/收起的手势；表格永远整张显示（节点自己长高）。
 				 */
-				const FOLD_ROWS = 10;
-				const rowsAll = [...tbody.querySelectorAll("tr")].filter((tr) => !tr.classList.contains("ff-tbl-detail"));
-				if (rowsAll.length > FOLD_ROWS) {
-					bd.className += " tbl-fold";
-					/*
-					 * ⚠ 用 offsetHeight（布局像素），不能用 getBoundingClientRect：
-					 * 画布 world 上有 scale 变换，rect 量到的是缩放后的像素 ——
-					 * 缩到 0.3 倍时「10 行」会被算成 3 行高（用户 2026-11-03 实测：操作几次后变默认三行）。
-					 */
-					let folded = false;
-					const foldH = () => {
-						/* 已经展开就别量了 */
-						if (bd.className.includes("tbl-open")) return true;
-						const theadEl = table.querySelector("thead");
-						let h = theadEl ? theadEl.offsetHeight : 0;
-						let measured = 0;
-						const need = Math.min(FOLD_ROWS, rowsAll.length);
-						for (let i = 0; i < need; i++) {
-							const rh = rowsAll[i].offsetHeight || 0;
-							if (rh > 0) { h += rh; measured++; }
-						}
-						/* 没量全就别写高度（否则会缩成两三行）—— 等它可见了再量 */
-						if (measured < need) return false;
-						bd.style.maxHeight = Math.ceil(h + 2) + "px";
-						bd.style.overflowY = "auto";
-						bd.style.overflowX = "visible";
-						folded = true;
-						return true;
-					};
-					/*
-					 * 量不到就重试 —— 节点刚渲染时可能被折叠着、窗口在后台、字体还没稳。
-					 * 只试三次就放弃的结果是整张表一直展开着（用户 2026-11-04 报的"有时候收不起来"）。
-					 */
-					const tryFold = (delays) => {
-						if (folded) return;
-						if (foldH()) return;
-						if (!delays.length) return;
-						setTimeout(() => tryFold(delays.slice(1)), delays[0]);
-					};
-					bd.title = "共 " + rowsAll.length + " 行 · 点一下全展开；在这里滚轮可以翻看";
-					tryFold([60, 400, 1200, 2400, 4000]);
-					/* 兜底：鼠标移到表上还没折起来 → 这时一定可见，再量一次 */
-					bd.addEventListener("pointerenter", () => { if (!folded) foldH(); });
-					bd.addEventListener("click", (ev) => {
-						ev.stopPropagation();
-						if (bd.className.includes("tbl-open")) {
-							bd.className = bd.className.replace(/\s*tbl-open/g, "");
-							bd.style.maxHeight = "";
-							foldH();
-							bd.title = "共 " + rowsAll.length + " 行 · 点一下全展开";
-						} else {
-							bd.className += " tbl-open";
-							bd.style.maxHeight = "none";
-							bd.style.overflowY = "visible";
-							bd.title = "点一下收回 10 行";
-						}
-					});
-					/* 折叠时滚轮留给表格自己滚，别让画布缩放抢走 */
-					bd.addEventListener("wheel", (ev) => {
-						if (!bd.className.includes("tbl-open")) ev.stopPropagation();
-					}, { passive: true });
-				} else {
-					bd.style.maxHeight = "none";
-				}
+				bd.style.maxHeight = "none";
+				bd.style.overflow = "visible";
 			}
 
 			function nodeEl(n) {
@@ -2741,7 +3414,8 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 						bd.className += " empty";
 						bd.textContent = n.src ? "（空 · 点我写）" : "";
 					}
-					if (n.src && !hasSections) {
+					/* 画风主体没有源文件，但正文照样要能在这里改（保存走 via:look，宿主整组写回画风列） */
+					if ((n.src || String(n.via || "") === "look") && !hasSections) {
 						bd.title = "点一下直接在画布上改";
 						bd.addEventListener("click", (ev) => {
 							ev.stopPropagation();
@@ -2756,7 +3430,11 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				const isRefNode = String(n.nodeRole || "") === "ref" || String(n.template || "") === "ref-file";
 				/* 容器节点（人物）：本节点不装正文，跟参考资料一样不画正文框 */
 				const isContainer = !isRefNode && (!!n.noBody || String(n.template || "") === "character");
-				if (isRefNode || isContainer) d.append(hd); else d.append(hd, bd);
+				/* 画风主体（look-one）：没有「标题 / 正文」之分，整段文字按正常字号显示（用户 2026-11-06） */
+				const isLookNode = !isRefNode && String(n.template || "") === "look-one";
+				if (isLookNode) { d.className += " look"; d.append(bd); }
+				else if (isRefNode || isContainer) d.append(hd);
+				else d.append(hd, bd);
 				/* 标题空着的节点（刚建的人名节点）：画一个小空白框，提示这里要填东西 */
 				if (!n.pseudo && !String(n.title || "").trim()) {
 					d.className += " untitled";
@@ -2954,12 +3632,26 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			function mediaNodeEl(n, opts) {
 				const inGrid = !!(opts && opts.grid);
 				const d = el("div", "ff-node media" + (inGrid ? " grid-cell" : ""));
+				/* 连接线起点：连接线按这个 key 找图片节点（D39） */
+				d.dataset.nodeKey = String(n.key || "");
+				/* 节点就是相框本身：内边距留 0，图片直接占满（用户 2026-11-05） */
+				d.style.padding = "0";
 				const media = n.media || {};
 				const model = MEDIA_MODELS || { image: {}, video: {}, audio: {} };
 
 				/* 标题行：编号 + 标题 + 结构操作 */
 				const hd = el("div", "ff-node-hd");
-				hd.append(el("span", "ff-node-no", n.no ? String(n.no) : ""), el("span", "ff-node-t", String(n.title || "")));
+				/*
+				 * 图片节点不再显示标题（用户 2026-11-06）：自动建出来的参考图容器名字就是「<主体> 参考图」，
+				 * 上游主体已经写着；用户自己起的名字（不带「参考图」后缀）照旧显示。
+				 */
+				const hideTitle = /参考图\s*$/.test(String(n.title || ""));
+				if (hideTitle) {
+					hd.append(el("span", "ff-node-no", n.no ? String(n.no) : ""));
+					d.className += " notitle";
+				} else {
+					hd.append(el("span", "ff-node-no", n.no ? String(n.no) : ""), el("span", "ff-node-t", String(n.title || "")));
+				}
 				if (!inGrid) {
 					const ops = el("span", "ff-node-ops");
 					/*
@@ -3001,16 +3693,31 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				const src = last
 					? "/filmflow/assets?action=file&root=" + encodeURIComponent(n.root || current()?.root || "") + "&p=" + encodeURIComponent(last.src)
 					: "";
+				/* 参考图（D39）：没有生成图时，预览框里就显示这张主体的参考图（用户：图就放预览框里） */
+				const refImgs = Array.isArray(n.mediaImages) ? n.mediaImages : [];
+				const refFirst = refImgs[0] || null;
+				const refSrc = refFirst
+					? "/filmflow/refs/file?root=" + encodeURIComponent(n.root || current()?.root || "") + "&p=" + encodeURIComponent(refFirst.src)
+					: "";
 				const box = el("div", "ff-media-thumb " + (type === "audio" ? "audio" : ""));
 				if (type !== "audio") {
-					box.style.width = boxW + "px";
-					box.style.height = Math.round((boxW * ratio[1]) / ratio[0]) + "px";
+					/* 图片：宽度占满节点、高度跟着图走（用户 2026-11-05） */
+					if (type === "image") { box.style.width = "100%"; box.style.height = "auto"; }
+					else box.style.width = boxW + "px";
+					if (type !== "image") box.style.height = Math.round((boxW * ratio[1]) / ratio[0]) + "px";
 				}
 				if (last && type === "image") {
 					const img = el("img");
 					img.src = src;
 					img.loading = "lazy";
 					box.append(img);
+				} else if (!last && type === "image" && refFirst) {
+					/* 没有生成图 → 预览框显示参考图；生成了新图就替换成生成图 */
+					const img = el("img");
+					img.src = refSrc;
+					img.loading = "lazy";
+					box.className += " hasref";
+					box.append(img, el("div", "ff-media-ref-tag", "参考图"));
 				} else if (last && type === "video") {
 					const v = el("video");
 					v.src = src;
@@ -3036,6 +3743,36 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					box.append(play);
 				}
 				d.append(box);
+
+				/*
+				 * 图片节点兼容器（D39）：节点里的图 = 这个主体的参考图。
+				 * 用户 2026-11-05 第 2 条：「参考图不要自己新找一个地方放，直接放在生成的图片的预览框里，
+				 * 如果有新生成的图片就替换掉」⇒ 预览框显示 latest 生成图，没有就显示参考图；
+				 * 上传/换图/删图都做成预览框上的小按钮，不再单开一条缩略图区。
+				 */
+				if (type === "image" && !inGrid) {
+					const opsImg = el("div", "ff-media-refops");
+					const bAddImg = el("button", "ff-media-addimg", refFirst ? "换参考图" : "＋ 上传参考图");
+					bAddImg.title = "本地图片 / 素材库任意项目的图（一个主体一个图片节点；三视图放一张）";
+					bAddImg.addEventListener("click", (ev) => {
+						ev.stopPropagation();
+						openImageNodePicker(n);
+					});
+					opsImg.append(bAddImg);
+					if (refFirst) {
+						const bDelImg = el("button", "ff-media-addimg", "删参考图");
+						bDelImg.addEventListener("click", async (ev) => {
+							ev.stopPropagation();
+							try {
+								await post("/filmflow/media-node", { root: n.root || current()?.root || "", key: n.key, action: "remove", src: refFirst.src });
+								SIG.tree = "";
+								await load();
+							} catch (e) { errLine.textContent = String((e && e.message) || e); }
+						});
+						opsImg.append(bDelImg);
+					}
+					box.append(opsImg);
+				}
 
 				/* 提示词：卡片主体（和参考图一样，提示词占最上面的大块） */
 				const promptBox = el("textarea", "ff-media-prompt-edit");
@@ -3761,6 +4498,37 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			 * 线断了、还有孤立短线）。这里全部用**量出来的真实坐标**画一条 path，
 			 * 数学上不可能错位。缩放画布时用 non-scaling-stroke 保持线宽不变。
 			 */
+			/**
+			 * 把表格节点钉到总节点左边（D39）。画布不许拖，位置全由布局算：
+			 * 左缘 = 总节点左缘 - 表格宽 - 28，顶 = 总节点顶（与标题行对齐）。
+			 * @returns {{table: Element, root: Element}|null}
+			 */
+			function pinTable(world) {
+				const tblNode = world.querySelector(".ff-node.tbl");
+				const tree = world.querySelector(":scope > .ff-tree");
+				const rootNode = tree ? tree.querySelector(":scope > .ff-node") : null;
+				if (!tblNode || !rootNode) return null;
+				const s = VIEW.s || 1;
+				/* 先转成绝对定位（宽度会变），再按"屏幕差值"挪 —— 不依赖 offsetParent 是哪层 */
+				if (tblNode.style.position !== "absolute") {
+					tblNode.style.position = "absolute";
+					tblNode.style.zIndex = "2";
+					tblNode.style.left = "0px";
+					tblNode.style.top = "0px";
+				}
+				const rr = rootNode.getBoundingClientRect();
+				let b = tblNode.getBoundingClientRect();
+				/* ① 横向：右缘距总节点左缘 28px */
+				let curLeft = parseFloat(tblNode.style.left) || 0;
+				const wantRight = rr.left - 28;
+				tblNode.style.left = (curLeft + (wantRight - b.right) / s).toFixed(1) + "px";
+				/* ② 纵向：顶对齐总节点标题行 */
+				b = tblNode.getBoundingClientRect();
+				let curTop = parseFloat(tblNode.style.top) || 0;
+				tblNode.style.top = (curTop + (rr.top - b.top) / s).toFixed(1) + "px";
+				return { table: tblNode, root: rootNode };
+			}
+
 			function drawConnectors(world) {
 				const NS = "http://www.w3.org/2000/svg";
 				const old = world.querySelector("svg.ff-lines");
@@ -3791,6 +4559,12 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					const r = el.getBoundingClientRect();
 					return { l: (r.left - wr.left) / s, r: (r.right - wr.left) / s, t: (r.top - wr.top) / s, b: (r.bottom - wr.top) / s };
 				};
+				/*
+				 * 表格钉在总节点左边（用户 2026-11-05：「表格的位置将单独固定在总节点的左边，
+				 * 由一根导线连接，无论其在画布上的建立时间」；画布**不许手动拖动**，全靠布局算）。
+				 * 挂在 drawConnectors 开头：每次重画布局都重新算，与建立顺序无关。
+				 */
+				const pinned = pinTable(world);
 
 				/*
 				 * 导线 = 一棵**完整的树**，节点坐在线上（用户 2026-10-23 定的最终形态）：
@@ -3830,9 +4604,9 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					 * 线正好插在正文中间（像穿过去）。参考图里每个节点都是单行，
 					 * 线接在那一行的中间 —— 多行节点照着做，就是接**第一行（标题）**的中间。
 					 */
-					const tEl = node.querySelector(".ff-node-t") || node.querySelector(".ff-node-hd") || node;
-					const tr = rel(tEl);
-					const cy = (tr.t + tr.b) / 2;
+					/* 接线高度 = **整块节点的垂直中心**（用户 2026-11-05：从节点中间连，不管多大） */
+					const nrAll = rel(node);
+					const cy = (nrAll.t + nrAll.b) / 2;
 					/*
 					 * ★ 一棵树的直接子列可能**不止一个**（历史上「收起开关」自己占一列，真子节点在下一列）。
 					 * 只认第一列 ⇒ 真子节点整列连不上导线，它们的孙节点也跟着一根线都没有
@@ -3840,7 +4614,13 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					 * ⇒ 把所有直接子列都收进来，一个孩子都不落。
 					 */
 					const childTrees = [...tree.querySelectorAll(":scope > .ff-kids")]
-						.flatMap((kc) => [...kc.children].filter((c) => c.tagName === "DIV"));
+						.flatMap((kc) => [...kc.children].filter((c) => c.tagName === "DIV"))
+						/*
+						 * 表格节点已经由 pinTable 钉到总节点左边（D39）：
+						 * 它**不再是树里的孩子**，否则会在树的括号上多画一条、和表格→总节点那根导线重复
+						 * （用户 2026-11-05 截图："为什么有两条线"）。
+						 */
+						.filter((c) => !(c.matches && c.matches(".ff-node.tbl")) && !(c.querySelector && c.querySelector(":scope > .ff-node.tbl")));
 					if (!childTrees.length) return;
 					const bx = nr.r + GAP;             // 竖线（括号主轴）的 x
 					/*
@@ -3856,8 +4636,8 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					const R = RAD;
 					for (const ct of childTrees) {
 						const cn = ct.querySelector(":scope > .ff-node") || ct;
-						const cT = cn.querySelector(".ff-node-t") || cn;
-						const ctr = rel(cT);
+						/* 孩子也从**整块节点中心**接（同样的口径） */
+						const ctr = rel(cn);
 						const ccy = (ctr.t + ctr.b) / 2;
 						const cl = rel(cn).l - 2;
 						const sgn = ccy >= cy ? 1 : -1;
@@ -3883,6 +4663,20 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					const rootNode = top.querySelector(":scope > .ff-node");
 					if (rootNode) walk(top, rel(rootNode).l);
 				}
+				/* 表格 → 总节点的**导线**（实线，短横；表格已由 pinTable 摆到左边） */
+				if (pinned) {
+					const a = rel(pinned.table);
+					const r2 = rel(pinned.root);
+					const tx = a.r + 2;
+					const ty = (a.t + a.b) / 2;
+					const rx = r2.l - 2;
+					const ry = r2.t + 14;
+					const mid = Math.max(tx + 12, rx - 12);
+					d.push("M " + tx.toFixed(1) + " " + ty.toFixed(1)
+						+ " H " + mid.toFixed(1)
+						+ " V " + ry.toFixed(1)
+						+ " H " + rx.toFixed(1));
+				}
 
 				if (!d.length) return;
 				const path = document.createElementNS(NS, "path");
@@ -3895,6 +4689,110 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				path.setAttribute("vector-effect", "non-scaling-stroke");
 				svg.append(path);
 				world.insertBefore(svg, world.firstChild);
+				/* 连接线（D39）跟着同一份布局重画：常显、虚线、不进表格 */
+				try { drawLinks(world); } catch { /* 画失败不影响画布 */ }
+			}
+
+			/**
+			 * 连接线（D39）：图片节点 → 表格里每个引用它的生成单元。
+			 *
+			 * 用户 2026-11-05 定的四条：①**常显**；②从图片节点起，另一头指向"生成单元的行"，
+			 * **不要插进表格里面**（终点落在表格左缘、与那一行同高）；③一个主体只允许一个图片节点；
+			 * ④画布不许手动拖拽 —— 位置全由布局算，这里只画，不参与布局。
+			 */
+			function drawLinks(world) {
+				const NS = "http://www.w3.org/2000/svg";
+				const old = world.querySelector("svg.ff-links");
+				if (old) old.remove();
+				const p0 = current();
+				if (!p0) return;
+				const tables = [];
+				const walk = (n) => {
+					if (!n) return;
+					if (n.doc && n.doc.kind === "table" && Array.isArray(n.linkNodes) && n.linkNodes.length) tables.push(n);
+					for (const c of n.children || []) walk(c);
+				};
+				for (const s of p0.stages || []) walk(s);
+				if (!tables.length) return;
+				const tbl = world.querySelector("table.ff-tbl");
+				if (!tbl) return;
+				const W = world.scrollWidth;
+				const H = world.scrollHeight;
+				if (!W || !H) return;
+				const NS2 = NS;
+				const svg = document.createElementNS(NS2, "svg");
+				svg.setAttribute("class", "ff-links");
+				svg.setAttribute("width", String(W));
+				svg.setAttribute("height", String(H));
+				svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+				svg.setAttribute("aria-hidden", "true");
+				const wr = world.getBoundingClientRect();
+				const s = VIEW.s || 1;
+				const rel = (r) => ({
+					l: (r.left - wr.left) / s, r: (r.right - wr.left) / s,
+					t: (r.top - wr.top) / s, b: (r.bottom - wr.top) / s,
+				});
+				const tblBox = rel(tbl.getBoundingClientRect());
+				/*
+				 * 终点 = 表格**右缘**外 2px（用户 2026-11-05 第 1 条）：
+				 * 表格钉在总节点左边，右侧才是画面主体所在的地方，从右边进不用绕一大圈；
+				 * 仍然不进表格内部，只是贴着右缘、与那一行同高。
+				 */
+				const endX = tblBox.r + 2;
+				let drawn = 0;
+				for (const t of tables) {
+					for (const link of t.linkNodes || []) {
+						const startKey = String(link.subjectKey || link.nodeKey || "");
+						const nodeEl0 = world.querySelector('[data-node-key="' + startKey.replace(/"/g, '\\"') + '"]') || world.querySelector('[data-node-key="' + String(link.nodeKey || "").replace(/"/g, '\\"') + '"]');
+						if (!nodeEl0) continue;
+						/* 连接线起点 = **主体节点左缘**垂直中心（用户 2026-11-05：统一从主体节点向左出发） */
+						const a = rel(nodeEl0.getBoundingClientRect());
+						const ax = a.l - 2;
+						const ay0 = (a.t + a.b) / 2;
+						const spread = Math.max(0, (a.b - a.t) / 2 - 14);
+						let kLine = 0;
+						for (const unitId of link.units || []) {
+							const rows = tbl.querySelectorAll('tr[data-unit="' + String(unitId).replace(/"/g, '\\"') + '"]');
+							if (!rows.length) continue;
+							const first = rows[0];
+							if (!first.getClientRects().length) continue;
+							const raw = first.getBoundingClientRect();
+							/* 表格是内部滚动的：只有落在**滚动视口**里的行才画线，收起/滚出去的不画 */
+							let vp = tbl.parentElement;
+							while (vp && vp !== world) {
+								const ov = getComputedStyle(vp).overflowY;
+								if (ov === "auto" || ov === "scroll") break;
+								vp = vp.parentElement;
+							}
+							const rawTbl = (vp && vp !== world) ? vp.getBoundingClientRect() : tbl.getBoundingClientRect();
+							if (raw.top < rawTbl.top - 1 || raw.bottom > rawTbl.bottom + 1) continue;
+							const rb = rel(raw);
+							/* 表格收起/折叠后这一行没有高度（或不在可视区）⇒ 这条线也不画（用户 2026-11-05 第 2 条） */
+							if (!(rb.b - rb.t > 2)) continue;
+							if (!(rb.l > -1e5)) continue;
+							const by = (rb.t + rb.b) / 2;
+							/* 从节点先横向出线，弯在远处收 —— 贴着一个点扇形发散很难看 */
+							const dir = endX >= ax ? 1 : -1;
+							const dx = Math.max(56, Math.abs(endX - ax) * 0.5);
+							const ay = ay0;
+							/* 自然弧线：节点左缘 → 表格右缘那一行（三次贝塞尔，水平进出） */
+							const dirX = endX >= ax ? 1 : -1;
+							const dArc = Math.max(40, Math.abs(endX - ax) * 0.45);
+							const path = document.createElementNS(NS2, "path");
+							path.setAttribute("d", "M" + ax.toFixed(1) + "," + ay.toFixed(1)
+								+ " C" + (ax + dirX * dArc).toFixed(1) + "," + ay.toFixed(1)
+								+ " " + (endX - dirX * dArc).toFixed(1) + "," + by.toFixed(1)
+								+ " " + endX.toFixed(1) + "," + by.toFixed(1));
+							path.setAttribute("class", "ff-link-line");
+							path.dataset.element = String(link.elementId || "");
+							path.dataset.unit = String(unitId);
+							svg.append(path);
+							drawn += 1;
+						}
+						/* 不画端点圆点：一堆线收成一个点很难看（用户 2026-11-05） */
+					}
+				}
+				if (drawn) world.insertBefore(svg, world.firstChild);
 			}
 
 			function layoutBraces(scope) {
@@ -4228,169 +5126,593 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				SIG.tree = "";
 				let ok = false;
 				try { ok = await load(); } catch { ok = false; }
-				try { await refreshHist(); } catch { /* 忽略 */ }
-				if (ok && ev && ev.shiftKey) { try { fit(); } catch { /* 忽略 */ } }
-				/* 后端 50ms 就回来时，"刷新中…"一闪而过，反而更像没反应 —— 至少留 250ms */
-				const used = Date.now() - t0;
-				if (used < 250) await new Promise((r) => setTimeout(r, 250 - used));
-				btnReload.className = "ff-btn" + (ok ? " ok" : " bad");
-				btnReload.textContent = ok ? "已刷新" : "刷新失败";
+				const sec = ((Date.now() - t0) / 1000).toFixed(1);
+				btnReload.className = "ff-btn";
+				btnReload.textContent = ok ? ("已刷新 " + sec + "s") : "刷新失败";
 				setTimeout(() => {
-					btnReload.className = "ff-btn";
 					btnReload.textContent = "刷新";
+					btnReload.className = "ff-btn";
 					delete btnReload.dataset.busy;
-				}, ok ? 1500 : 2500);
+				}, 1400);
 			});
-			btnUndo.addEventListener("click", () => { runStructure({ type: "undo" }); });
-			btnClose.addEventListener("click", () => { card.className = "ff-card"; SEL = null; });
-			btnSave.addEventListener("click", () => { save(); });
-			/*
-			 * 卡片上的结构操作（改名 / 移动 / 删除）。
-			 *
-			 * 用户 2026-10-21 报"画布功能重构完全没实现"，核查发现：
-			 * 宿主早就有 rename / move 接口，**但画布上一直没有按钮** —— 用户找不到。
-			 * agent 也只能说"我手里没有删节点这个动作，你在卡片菜单里点"，
-			 * 所以卡片上必须有这几个动作，否则那句话就是空头支票。
-			 */
-			btnRename.addEventListener("click", () => {
-				const n = SEL;
-				if (!n) return;
-				const title = String(cardRenameInput.value || "").trim();
-				if (!title) { cardMsg.className = "ff-msg err"; cardMsg.textContent = "名字不能为空"; return; }
-				if (title === String(n.title || "")) { cardMsg.className = "ff-msg"; cardMsg.textContent = "名字没变"; return; }
-				runStructure({ type: "rename", key: n.key, title }).then((r) => {
-					if (r) { cardMsg.className = "ff-msg ok"; cardMsg.textContent = "已改名：" + title; }
-				});
-			});
-			btnUp.addEventListener("click", () => {
-				const n = SEL;
-				if (!n) return;
-				runStructure({ type: "move", key: n.key, dir: "up" });
-			});
-			btnDown.addEventListener("click", () => {
-				const n = SEL;
-				if (!n) return;
-				runStructure({ type: "move", key: n.key, dir: "down" });
-			});
-			btnDelete.addEventListener("click", (ev) => {
-				ev.stopPropagation();
-				const n = SEL;
-				if (!n) return;
-				structure({ type: "delete", key: n.key });
-			});
-			/*
-			 * 按文件展开：一个节点可能声明多个 glob（⑤ 有 v*.txt 和 b*.txt 两组），
-			 * 逐个发 expand —— 宿主对"已经展开过"的 glob 是幂等的，不会重复建。
-			 */
-			btnExpand.addEventListener("click", async () => {
-				const n = SEL;
-				if (!n) return;
-				const globs = (n.outputs || []).filter((o) => o.count > 1).map((o) => o.glob);
-				if (!globs.length) return;
-				btnExpand.textContent = "展开中…";
-				let total = 0;
-				for (const glob of globs) {
-					const r = await structure({ type: "expand", key: n.key, glob });
-					if (r && typeof r.count === "number") total += r.count;
-				}
-				cardMsg.className = "ff-msg ok";
-				cardMsg.textContent = total
-					? "已展开 " + total + " 个子节点（每个文件一个节点）"
-					: "这些文件已经是子节点了，没有新建";
-				card.className = "ff-card";
-			});
-
-			// 拖动 + 滚轮缩放
-			let drag = null;
-			/*
-			 * ★ 点击空白 = 保存（用户 2026-10-22：「对节点的更改要有点击空白处保存功能」）。
-			 *
-			 * 之前这里对任何 mousedown 都 `preventDefault()` —— 后果是**输入框永远拿不到 blur**，
-			 * 于是原地改完标题/正文，点别处什么也不会发生，改动就挂在那儿（实测就是"没法用"）。
-			 * ⇒ 有编辑器在时：点别处先 commit（blur 触发保存），并且不当成拖动。
-			 */
-			const onDown = (e) => {
-				if (e.target.closest(".ff-card")) return;
-				/*
-				 * ★ 任何**表单控件**上的按压都不算拖动、也不 preventDefault。
-				 *
-				 * `preventDefault()` 会阻止焦点转移 ⇒ 输入框里的光标放不进去、下拉打不开。
-				 * 上次只放行了 `.ff-inline-edit/.ff-inline-rename`，结果新增的
-				 * 媒体提示词框（textarea）和参数下拉（select）又被同一个坑绊住
-				 * —— 用户 2026-10-22：「生成节点输入框内无法编辑」。
-				 * ⇒ 干脆按**控件类型**放行，以后再加输入框不会再犯。
-				 */
-				if (e.target.closest("input, textarea, select, button, [contenteditable='true']")) {
-					drag = null;
-					return;
-				}
-				const editing = document.querySelector(".ff-inline-edit, .ff-inline-rename");
-				if (editing) {
-					if (!editing.contains(e.target)) {
-						try { editing.blur(); } catch { /* 忽略 */ }
-					} else {
-						e.stopPropagation();   // 点在编辑器里：让它自己定位光标
-					}
-					drag = null;
-					return;
-				}
-				drag = { x: e.clientX - VIEW.x, y: e.clientY - VIEW.y };
-				stage.className = "ff-stage drag";
-				if (e.target === stage) card.className = "ff-card";
-				e.preventDefault();
-			};
-			const onMove = (e) => {
-				if (!drag) return;
-				VIEW.x = e.clientX - drag.x;
-				VIEW.y = e.clientY - drag.y;
-				applyView();
-			};
-			const onUp = () => { drag = null; stage.className = "ff-stage"; };
-			const onWheel = (e) => {
-				if (e.target.closest(".ff-card")) return;
-				if (e.target.closest("input, textarea, select, button, [contenteditable='true']")) return;
-				if (document.querySelector(".ff-inline-edit, .ff-inline-rename")) return;   // 编辑时不缩放
-				e.preventDefault();
-				const k = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-				const ns = Math.max(0.25, Math.min(2.5, VIEW.s * k));
-				const r = stage.getBoundingClientRect();
-				const mx = e.clientX - r.left;
-				const my = e.clientY - r.top;
-				VIEW.x = mx - (mx - VIEW.x) * (ns / VIEW.s);
-				VIEW.y = my - (my - VIEW.y) * (ns / VIEW.s);
-				VIEW.s = ns;
-				applyView();
-			};
-			stage.addEventListener("mousedown", onDown);
-			stage.addEventListener("wheel", onWheel, { passive: false });
-			window.addEventListener("mousemove", onMove);
-			window.addEventListener("mouseup", onUp);
-
-			// ── 轮询 ──────────────────────────────────────────────────
-			try { PICK = localStorage.getItem(PICK_KEY) || ""; } catch { PICK = ""; }
-
-			const tick = async () => {
-				if (disposed) return;
-				await load();
-				if (disposed) return;
-				pollTimer = setTimeout(tick, 2000);
-			};
-			tick();
-
-			// ── 拆 ────────────────────────────────────────────────────
-			return () => {
-				disposed = true;
-				if (pollTimer) clearTimeout(pollTimer);
-				if (linesRaf) cancelAnimationFrame(linesRaf);
-				try { if (linesRO) linesRO.disconnect(); } catch { /* 忽略 */ }
-				window.removeEventListener("resize", redrawLines);
-				stage.removeEventListener("mousedown", onDown);
-				stage.removeEventListener("wheel", onWheel);
-				window.removeEventListener("mousemove", onMove);
-				window.removeEventListener("mouseup", onUp);
-				host.innerHTML = "";
-			};
 		}
+		/*
+		 * 画布素材引用（2026-11-06，用户原话）：
+		 *   「不要艾特，改成旁边加号点开选择画布上的素材。」
+		 *   「我说的加号就是原有的这个添加节点按钮。」「添加文件按钮的原功能要保留啊」
+		 *   「点开之后只有文字描述，要有很小的图」「菜单栏不要出现在下面」
+		 *   「选择了之后输入框里要出现选择了的图片的缩小版，
+		 *     直接在用户发给agent的文字信息中精准指向所引用的图片」
+		 *
+		 * 做法：**不自建按钮**。官方 ＋（添加文件或调用指令）弹出菜单时，在菜单最上面插一条
+		 * 「🖼 引用画布素材…」；点它把选择面板弹在输入框**上方**（缩略图 + 名字 + 路径），
+		 * 选中后往输入框插「@图[名字](相对路径)」，并在 token 左侧贴一张 16px 缩略图 ——
+		 * 文字是给 agent 的精确指路，小图是给人看的。
+		 */
+		function initComposerMentions() {
+			const TOKRE = /@图\[([^\]\n]*)\]\(([^)\n]+)\)/g;
+			let picker = null;
+			let items = [];
+			let active = 0;
+			let savedRange = null;
+			let pickerOpen = false;   /* 面板是否「应该」显示：异步返回后据此决定要不要再摆一次 */
+			let curRoot = "";
+			const INSERTED = [];   /* 本次会话插过的胶囊（拿不到草稿投影时用） */
+
+			/* 缩略图 URL 要用 root：早点拿到，免得每次启动先发一串 400 */
+			fetch("/filmflow/state", { headers: { accept: "application/json" } })
+				.then((r) => r.json())
+				.then((st) => { const v = String((st && st.current) || ""); if (v) curRoot = v; })
+				.catch(() => { /* 忽略 */ });
+
+			const boxOf = (n) => {
+				const e = n && n.nodeType === 1 ? n : (n && n.parentElement) || null;
+				try { return e ? e.closest('[role="textbox"]') : null; } catch { return null; }
+			};
+			const hostOf = (box) => (box && box.querySelector('[contenteditable="true"]')) || box || null;
+			const urlOf = (src, root) => {
+				const rel = String(src || "").replace(/\\/g, "/").replace(/^\/+/, "");
+				if (!rel) return "";
+				if (rel.indexOf(".film/assets/") === 0) {
+					return "/filmflow/assets?action=file&root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent(rel);
+				}
+				return "/filmflow/refs/file?root=" + encodeURIComponent(root) + "&p=" + encodeURIComponent(rel);
+			};
+			const urlFor = (src) => urlOf(src, curRoot);
+			/* mention 里放**节点 key**（稳定唯一），不是显示标题；列表里看到的仍是 label */
+			const tokenOf = (it) => "@图[" + String(it.key || it.label) + "](" + String(it.src) + ")";
+
+			const hide = () => { pickerOpen = false; if (picker) picker.style.display = "none"; };
+
+			/* token 在输入框里可能被拆进多个文本节点（官方内容分段渲染），
+			   所以按"整段 textContent 的字符坐标"找，再映射回（节点, 偏移）。 */
+			const textSegs = (host) => {
+				const segs = [];
+				let pos = 0;
+				const tw = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+				while (tw.nextNode()) {
+					const n = tw.currentNode;
+					const len = String(n.nodeValue || "").length;
+					if (len) segs.push({ n: n, start: pos, end: pos + len });
+					pos += len;
+				}
+				return { segs: segs, total: pos };
+			};
+			const posOf = (segs, idx) => {
+				let last = null;
+				for (const s of segs) {
+					if (idx >= s.start && idx < s.end) return { n: s.n, off: idx - s.start };
+					if (idx === s.end) last = { n: s.n, off: s.end - s.start };
+					if (idx < s.start) break;
+				}
+				return last;
+			};
+			const rectOfToken = (host, token, nth) => {
+				if (!token) return null;
+				const flat = textSegs(host);
+				const txt = String(host.textContent || "");
+				let seen = 0;
+				let from = 0;
+				for (;;) {
+					const k = txt.indexOf(token, from);
+					if (k < 0) return null;
+					if (seen === nth) {
+						const a = posOf(flat.segs, k);
+						const b = posOf(flat.segs, k + token.length);
+						if (a && b) {
+							try {
+								const rg = document.createRange();
+								rg.setStart(a.n, a.off);
+								rg.setEnd(b.n, b.off);
+								const r = rg.getBoundingClientRect();
+								if (r && r.width) return r;
+							} catch { /* 忽略 */ }
+						}
+					}
+					seen++;
+					from = k + token.length;
+				}
+			};
+
+			/* 输入框里的 token 旁边贴小图；token 被删掉，图跟着消失 */
+			/* 当前草稿的「剪贴板投影」：chip 会展开成完整 mention（这就是发给 agent 的文本） */
+			/* 会话 id 候选：先本机记的「上次在看的」，再主视图保留的，最后全部 */
+			const sidCandidates = () => {
+				const out = [];
+				const push = (v) => { const s = String(v || ""); if (s && out.indexOf(s) < 0) out.push(s); };
+				try { push(localStorage.getItem("ff.sess." + curRoot)); } catch { /* 忽略 */ }
+				let byId = null;
+				try {
+					const st = ACTIVE_CTX && ACTIVE_CTX.sessions && ACTIVE_CTX.sessions.list ? ACTIVE_CTX.sessions.list.getSnapshot() : null;
+					byId = st && st.byId ? st.byId : null;
+				} catch { byId = null; }
+				if (byId) {
+					const rest = [];
+					for (const id of Object.keys(byId)) {
+						const row = byId[id];
+						const rb = row && row.retainedBy ? row.retainedBy : null;
+						if (rb && (rb.mainView || rb.conversation || rb.composer)) push(id);
+						else rest.push(id);
+					}
+					for (const id of rest) push(id);
+				}
+				return out;
+			};
+			/* 会话输入门面（拿到就记住；失败返回 null） */
+			const shellOf = (sid) => {
+				try {
+					if (!MENTION_HUB || typeof MENTION_HUB.shell !== "function") return null;
+					return MENTION_HUB.shell(sid) || null;
+				} catch { return null; }
+			};
+			/*
+			 * 找到「界面上这个输入框」对应的门面：
+			 * 判据是 shell 自己的 Lexical editor 就挂在眼前这个 contenteditable 上 ——
+			 * 比猜 session id 可靠（本地记的那个可能已经不在了）。
+			 */
+			const shellForComposer = (host) => {
+				const same = (sh) => {
+					try {
+						const ed = sh && sh.editor;
+						const root = ed && (typeof ed.getRootElement === "function" ? ed.getRootElement() : ed._rootElement);
+						if (!root || !host) return false;
+						return root === host || root.contains(host) || host.contains(root);
+					} catch { return false; }
+				};
+				if (LAST_SHELL && same(LAST_SHELL)) return LAST_SHELL;
+				LAST_SHELL = null;
+				for (const sid of sidCandidates()) {
+					const sh = shellOf(sid);
+					if (!sh || typeof sh.insertReference !== "function") continue;
+					if (same(sh)) { LAST_SHELL = sh; return sh; }
+				}
+				return null;
+			};
+			/* 当前草稿的「剪贴板投影」：chip 会展开成完整 mention（这就是发给 agent 的文本） */
+			const draftNow = () => {
+				const sh = LAST_SHELL || shellForComposer(hostOf(document.querySelector('[role="textbox"]')));
+				if (!sh) return "";
+				try {
+					const st = sh.state && sh.state.getSnapshot ? sh.state.getSnapshot() : null;
+					return st ? String(st.draft || "") : "";
+				} catch { return ""; }
+			};
+
+			/* 官方引用胶囊：外壳带 data-composer-chip，里面那个 span 才是可见的胶囊 */
+			/* 胶囊所在**那一行字**的盒子：缩略图要跟文字对齐，不是跟 14px 的胶囊对齐 */
+			const lineBoxOf = (chip) => {
+				try {
+					const para = (chip && (chip.closest("p") || (chip.parentElement && chip.parentElement.parentElement))) || null;
+					if (!para) return null;
+					const tw = document.createTreeWalker(para, NodeFilter.SHOW_TEXT);
+					while (tw.nextNode()) {
+						const t = tw.currentNode;
+						if (!String(t.nodeValue || "").trim()) continue;
+						const rg = document.createRange();
+						rg.selectNodeContents(t);
+						const r = rg.getBoundingClientRect();
+						if (r && r.height) return r;
+					}
+				} catch { /* 忽略 */ }
+				return null;
+			};
+
+			const chipElsOf = (host) => Array.from(host.querySelectorAll("[data-composer-chip]")).map((w) => w.querySelector("span") || w);
+
+			/* 输入框里的引用旁边贴小图；引用被删掉，图跟着消失 */
+			/* 输入框里的引用：在胶囊的位置上贴一张「字那么高」的小图（宽 ≈1.8 个字） */
+			/*
+			 * 输入框里的引用：在胶囊的槽位上贴一张「字那么高」的小图（宽 ≈1.8 个字）。
+			 * 注意：**先无条件清理多余的小图**，再按需布置 —— 否则换屏幕/切项目后，
+			 * 那些 position:fixed 的图会留在画面上（用户 2026-11-06：「胶囊会穿模」）。
+			 */
+			const syncChips = () => {
+				const box = document.querySelector('[role="textbox"]');
+				const host = hostOf(box);
+				const have = Array.prototype.slice.call(document.querySelectorAll("img.ff-at-inline"));
+				const want = [];
+				let FH = 14;
+				let IW = 25;
+				if (host && curRoot) {
+					try { FH = Math.round(parseFloat(getComputedStyle(host).fontSize) || 14); } catch { /* 忽略 */ }
+					IW = Math.round(FH * 1.8);
+					/* ① 官方胶囊：横向用胶囊的槽位，纵向用「这一行文字」的中心 */
+					const draft = draftNow();
+					const chips = chipElsOf(host);
+					if (chips.length) {
+						const mentions = [];
+						TOKRE.lastIndex = 0;
+						let mm = TOKRE.exec(draft);
+						while (mm) { mentions.push({ token: mm[0], src: mm[2] }); mm = TOKRE.exec(draft); }
+						const list = mentions.length === chips.length ? mentions
+							: INSERTED.slice(INSERTED.length - chips.length).map((x) => {
+								const mt = /@图\[[^\]]*\]\(([^)]+)\)/.exec(x.mention);
+								return { token: x.mention, src: mt ? mt[1] : "" };
+							});
+						for (let i2 = 0; i2 < chips.length && i2 < list.length; i2++) {
+							if (!list[i2].src) continue;
+							const cr = chips[i2].getBoundingClientRect();
+							if (!cr.width) continue;
+							/* 胶囊必须在看得见的输入框里（换屏幕后别留着） */
+					/* 输入框被别的层（片库/项目菜单）盖住时，别在它上面飘一张图 */
+					try {
+						const hit = document.elementFromPoint(Math.round(cr.left + cr.width / 2), Math.round(cr.top + cr.height / 2));
+						if (!hit || !(hit === host || host.contains(hit))) continue;
+					} catch { /* 忽略 */ }
+							if (cr.bottom < 0 || cr.top > window.innerHeight) continue;
+							const lb = lineBoxOf(chips[i2]);
+							want.push({
+								key: list[i2].token + "#" + i2,
+								src: list[i2].src,
+								chip: true,
+								cx: cr.left + cr.width / 2,
+								cy: lb ? (lb.top + lb.height / 2) : (cr.top + cr.height / 2),
+							});
+						}
+					}
+					/* ② 退路：纯文本 token（没插成胶囊时） */
+					const txt = String(host.textContent || "");
+					const nthOf = {};
+					TOKRE.lastIndex = 0;
+					let m = TOKRE.exec(txt);
+					while (m) {
+						const key = m[0];
+						const nth = nthOf[key] || 0;
+						nthOf[key] = nth + 1;
+						const r = rectOfToken(host, key, nth);
+						if (r) want.push({ key: "t#" + key + "#" + nth, src: m[2], chip: false, cx: r.left + IW / 2, cy: r.top + r.height / 2 });
+						m = TOKRE.exec(txt);
+					}
+				}
+				
+				for (let i2 = 0; i2 < want.length; i2++) {
+					const w = want[i2];
+					let img = have[i2];
+					if (!img) {
+						img = document.createElement("img");
+						img.className = "ff-at-inline";
+						img.style.zIndex = "129";
+						document.body.append(img);
+						have[i2] = img;
+					}
+					img.dataset.token = w.key;
+					const u = urlFor(w.src);
+					if (u && img.getAttribute("src") !== u) img.setAttribute("src", u);
+					img.title = w.src;
+					img.style.display = "";
+					img.style.width = IW + "px";
+					img.style.height = FH + "px";
+					img.style.left = Math.round(w.cx - IW / 2) + "px";
+					img.style.top = Math.round(w.cy - FH / 2) + "px";
+				}
+				/* 多余的一律删掉（换屏幕、删胶囊、切项目都走这里） */
+				for (let k = want.length; k < have.length; k++) {
+					try { have[k].remove(); } catch { /* 忽略 */ }
+				}
+			};
+
+			const render = () => {
+				const p = picker;
+				if (!p) return;
+				p.textContent = "";
+				const hd = document.createElement("div");
+				hd.className = "ff-at-hd";
+				hd.textContent = items.length
+					? ("画布素材 · " + items.length + " 张（点一下插到输入框）")
+					: "画布上还没有图片：先在画布上给主体节点放图";
+				p.append(hd);
+				items.forEach((it, i) => {
+					const row = document.createElement("div");
+					row.className = "ff-at-it" + (i === active ? " on" : "");
+					row.dataset.i = String(i);
+					const th = document.createElement("img");
+					th.className = "ff-at-th";
+					th.loading = "lazy";
+					th.onerror = () => { th.style.visibility = "hidden"; };
+					th.setAttribute("src", it.url);
+					const tg = document.createElement("span");
+					tg.className = "ff-at-tag";
+					tg.textContent = it.tag;
+					const nm = document.createElement("span");
+					nm.className = "ff-at-nm";
+					nm.textContent = it.label;
+					const pa = document.createElement("span");
+					pa.className = "ff-at-pa";
+					pa.textContent = it.src;
+					row.append(th, tg, nm, pa);
+					p.append(row);
+				});
+				const on = p.querySelector(".ff-at-it.on");
+				try { if (on) on.scrollIntoView({ block: "nearest" }); } catch { /* 忽略 */ }
+			};
+
+			/* 面板贴在锚点（官方菜单里我们那一条）**上方** */
+			const placeRect = (r) => {
+				if (!pickerOpen && picker && picker.style.display !== "block") return;
+				const p = picker;
+				if (!p || !r) return;
+				const W = 360;
+				const left = Math.max(8, Math.min(Math.round(r.left), Math.max(8, window.innerWidth - W - 8)));
+				p.style.display = "block";
+				p.style.width = W + "px";
+				p.style.left = left + "px";
+				p.style.top = "auto";
+				p.style.bottom = Math.round(window.innerHeight - r.top + 6) + "px";
+				p.style.maxHeight = Math.min(320, Math.max(160, Math.round(r.top) - 24)) + "px";
+			};
+
+			const insert = (text) => {
+				const box = boxOf(document.activeElement) || document.querySelector('[role="textbox"]');
+				if (!box) return false;
+				try { box.focus(); } catch { /* 忽略 */ }
+				const host = hostOf(box);
+				try {
+					if (savedRange && host && host.contains(savedRange.startContainer)) {
+						const s = window.getSelection();
+						s.removeAllRanges();
+						s.addRange(savedRange);
+					}
+				} catch { /* 忽略 */ }
+				let ok = false;
+				try { ok = document.execCommand("insertText", false, text); } catch { ok = false; }
+				if (!ok && host) {
+					try {
+						host.focus();
+						const s2 = window.getSelection();
+						if (s2 && s2.rangeCount) s2.getRangeAt(0).insertNode(document.createTextNode(text));
+						ok = true;
+					} catch { ok = false; }
+				}
+				savedRange = null;
+				setTimeout(syncChips, 90);
+				return ok;
+			};
+
+			/*
+			 * 把选中项插成官方 reference chip（输入框里只显示小图标 +「图片」）。
+			 * 成功返回 true；任何一步不满足都返回 false，调用方退回纯文本。
+			 */
+			/* 把选中项插成官方 reference chip；成功返回 true，任何一步不满足都返回 false（调用方退回纯文本） */
+			/* 把选中项插成官方 reference chip；成功返回 true，任何一步不满足都返回 false（调用方退回纯文本） */
+			/*
+			 * 把选中项插成官方 reference chip；成功返回 true，任何一步不满足都返回 false（调用方退回纯文本）。
+			 *
+			 * ⚠ span 必须是**检测坐标**（detect），不是草稿文本坐标：有胶囊时两者长度不同。
+			 *   官方给的口子就是 shell.actions.captureInsertion()（= caretSpan + 当前 rev）。
+			 */
+			const insertChip = (mention) => {
+				if (!MENTION_HUB || typeof MENTION_HUB.shell !== "function") return false;
+				const host = hostOf(document.querySelector('[role="textbox"]'));
+				const sh = shellForComposer(host);
+				if (!sh || typeof sh.insertReference !== "function") return false;
+				const txt = String(mention || "");
+				const spans = [];
+				try {
+					const sp = sh.actions && sh.actions.captureInsertion ? sh.actions.captureInsertion() : null;
+					if (sp) spans.push(sp);
+				} catch { /* 忽略 */ }
+				try {
+					const st = sh.state && sh.state.getSnapshot ? sh.state.getSnapshot() : null;
+					if (st) {
+						const at = String(st.draft || "").length;
+						spans.push({ start: at, end: at, draftRev: st.draftRev });
+					}
+				} catch { /* 忽略 */ }
+				const mk = (label) => ({ source: MENTION_SOURCE, ref: txt, label: label, appearance: "file", clipboardText: txt });
+				/* 官方对 label 有校验：先试空格（只剩图标，图标再被缩略图盖住），不行退「图片」 */
+				for (const span of spans) {
+					for (const label of [MENTION_LABEL, MENTION_LABEL_FALLBACK]) {
+						try {
+							if (sh.insertReference(mk(label), span) === true) { LAST_SHELL = sh; INSERTED.push({ mention: txt }); return true; }
+						} catch { /* 换下一个组合 */ }
+					}
+				}
+				return false;
+			};
+
+			/* 选中一项：插胶囊；会话门面可能还没热起来，最多重试 6 次（约 2.5 秒），仍不行退回纯文本 */
+			const choose = (i) => {
+				const it = items[i];
+				if (!it) return;
+				hide();
+				const mention = tokenOf(it);
+				let tries = 0;
+				const go = () => {
+					if (insertChip(mention)) { setTimeout(syncChips, 140); return; }
+					tries++;
+					if (tries < 6) { setTimeout(go, 400); return; }
+					insert(mention + " ");
+				};
+				go();
+			};
+
+			const move = (d) => {
+				const n = items.length;
+				if (!n) return;
+				active = ((active + d) % n + n) % n;
+				render();
+			};
+
+			/* 画布上的图：元素参考图 + 手加素材 + 图片节点里的图（含光杆图）+ 素材库产物 */
+			const load = async () => {
+				curRoot = "";
+				let refs = {};
+				let ja = {};
+				/* 先拿当前片子：缩略图 URL 要用它 */
+				try {
+					const st = await (await fetch("/filmflow/state", { headers: { accept: "application/json" } })).json();
+					curRoot = String((st && st.current) || "");
+				} catch { /* 拿不到就空 */ }
+				/* 两个接口分开取：一个挂了另一个照用 */
+				try {
+					const r1 = await fetch("/filmflow/refs?root=" + encodeURIComponent(curRoot), { headers: { accept: "application/json" } });
+					refs = await r1.json();
+				} catch { refs = {}; }
+				try {
+					const r2 = await fetch("/filmflow/assets?action=list&root=" + encodeURIComponent(curRoot), { headers: { accept: "application/json" } });
+					ja = await r2.json();
+				} catch { ja = {}; }
+				const out = [];
+				const seen = {};
+				const push = (tag, label, src, key) => {
+					const s = String(src || "").trim().replace(/\\/g, "/");
+					if (!s) return;
+					const k = s.toLowerCase();
+					if (seen[k]) return;
+					seen[k] = 1;
+					out.push({ tag: tag, label: String(label || ""), key: String(key || label || ""), src: s, url: urlFor(s) });
+				};
+				for (const el of (refs.elements || [])) {
+					for (const src of (el.images || [])) push("参考", el.name, src);
+				}
+				for (const mt of (refs.materials || [])) push("素材", mt.label, mt.image);
+				for (const nd of (refs.mediaNodes || [])) {
+					for (const im of (nd.images || [])) push("图", nd.title || nd.key || nd.name, im && im.src, nd.key);
+				}
+				for (const it of (ja.items || [])) {
+					if (!it) continue;
+					if (it.type && it.type !== "image") continue;
+					push("库", it.nodeTitle || it.name || "产物", it.src || it.path);
+				}
+				items = out.slice(0, 80);
+				active = 0;
+			};
+
+			const show = async (rect) => {
+				if (!picker) return;
+				pickerOpen = true;
+				render();
+				placeRect(rect);
+				await load();
+				if (!pickerOpen) return;   /* 加载期间已经关掉了（选中/点外面）就别再弹回来 */
+				render();
+				placeRect(rect);
+			};
+
+			const buildPicker = () => {
+				if (picker) return picker;
+				picker = document.createElement("div");
+				picker.className = "ff-at-picker";
+				picker.style.zIndex = "2147483000";
+				picker.addEventListener("mousedown", (ev) => { ev.preventDefault(); ev.stopPropagation(); }, true);
+				picker.addEventListener("click", (ev) => {
+					ev.preventDefault();
+					ev.stopPropagation();
+					let row = ev.target;
+					while (row && row !== picker && !(row.classList && row.classList.contains("ff-at-it"))) row = row.parentElement;
+					if (!row || row === picker) return;
+					choose(Number(row.dataset.i || 0));
+				});
+				document.body.append(picker);
+				document.addEventListener("mousedown", (ev) => {
+					if (!picker || picker.style.display !== "block") return;
+					try { if (picker.contains(ev.target)) return; } catch { /* 忽略 */ }
+					hide();
+				}, true);
+				window.addEventListener("keydown", (ev) => {
+					if (!picker || picker.style.display !== "block") return;
+					if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); hide(); }
+					else if (ev.key === "ArrowDown") { ev.preventDefault(); ev.stopPropagation(); move(1); }
+					else if (ev.key === "ArrowUp") { ev.preventDefault(); ev.stopPropagation(); move(-1); }
+					else if (ev.key === "Enter") { ev.preventDefault(); ev.stopPropagation(); choose(active); }
+				}, true);
+				picker.addEventListener("wheel", (ev) => ev.stopPropagation(), true);
+				return picker;
+			};
+
+			/* 官方「添加文件」菜单一出现，就在最上面插一条我们的入口；官方每一项都不动 */
+			const isPopup = (elm) => {
+				try {
+					const st = getComputedStyle(elm);
+					if (st.position !== "fixed" && st.position !== "absolute") return false;
+					const r = elm.getBoundingClientRect();
+					if (r.width < 120 || r.height < 24) return false;
+					if (elm.closest('[role="textbox"]')) return false;
+					if (/发消息或创建任务/.test(elm.textContent || "")) return false;
+					return true;
+				} catch { return false; }
+			};
+			const ensureEntry = () => {
+				const cands = Array.prototype.slice.call(document.querySelectorAll('div, ul, [role="menu"]')).filter((elm) => {
+					const t = String(elm.textContent || "");
+					if (!/添加文件|调用指令/.test(t)) return false;
+					if (elm.querySelector(".ff-at-entry")) return false;
+					return isPopup(elm);
+				});
+				if (!cands.length) return;
+				cands.sort((a, b) => String(a.textContent || "").length - String(b.textContent || "").length);
+				const menu = cands[0];
+				const entry = document.createElement("div");
+				entry.className = "ff-at-entry";
+				entry.textContent = "🖼 引用画布素材…";
+				entry.addEventListener("mousedown", (ev) => {
+					ev.preventDefault();
+					const r = entry.getBoundingClientRect();
+					const box = document.querySelector('[role="textbox"]');
+					if (box) {
+						try { box.focus(); } catch { /* 忽略 */ }
+						try {
+							const s = window.getSelection();
+							if (s && s.rangeCount && box.contains(s.getRangeAt(0).startContainer)) savedRange = s.getRangeAt(0).cloneRange();
+						} catch { /* 忽略 */ }
+					}
+					buildPicker();
+					void show({ left: r.left, top: r.top, width: r.width, height: r.height });
+				});
+				menu.insertBefore(entry, menu.firstChild);
+			};
+
+			buildPicker();
+			/* 调试/排障用（不参与界面）：window.__ffInsertChip("@图[名字](路径)") 直接插一枚胶囊 */
+			try {
+				window.__ffInsertChip = (m) => insertChip(String(m || ""));
+				window.__ffClearDraft = () => {
+					try {
+						const sh = shellForComposer(hostOf(document.querySelector('[role="textbox"]')));
+						if (sh && typeof sh.setDraft === "function") { sh.setDraft(""); return true; }
+					} catch { /* 忽略 */ }
+					return false;
+				};
+				window.__ffPickerItems = async () => {
+					await load();
+					return { root: curRoot, items: items.map((x) => x.tag + "|" + x.label + "|" + x.key + "|" + x.src) };
+				};
+				window.__ffChipState = () => ({
+					hub: !!MENTION_HUB,
+					shell: !!LAST_SHELL,
+					sids: sidCandidates().length,
+					hostMatch: (() => {
+						try {
+							const h = hostOf(document.querySelector('[role="textbox"]'));
+							return !!shellForComposer(h);
+						} catch { return false; }
+					})(),
+				});
+			} catch { /* 忽略 */ }
+			setInterval(ensureEntry, 400);
+			setInterval(syncChips, 500);
+		}
+		try { setTimeout(initComposerMentions, 900); } catch { /* 忽略 */ }
 
 		// ══════════════════════════════════════════════════════════════
 		// 提案卡：官方工具树里的一个 keyed 视图
@@ -5252,12 +6574,55 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					h("span", undefined, String(it.nodeTitle || it.node || "") + "　" + String(it.model || "")),
 					h("button", { className: "ff-btn", onClick: (e) => { e.stopPropagation(); close(); } }, "关闭")));
 		}
-
 		/**
-		 * 素材库：按项目分文件夹（用户 2026-10-28：「素材库要分文件夹，一个项目一个文件夹」）。
-		 * 第一层是项目文件夹 → 点进去看那一部的素材；类型筛选只在这一层用。
-		 * @returns 素材库面板，或 null。
+		 * 一句文本输入（替掉原生 prompt —— Electron 不支持，B54）。
+		 * 角色库要在素材库里给一张图改角色名，就靠它（模块级：AssetsOverlay 是模块级组件）。
+		 * @param label - 标题
+		 * @param hint - 占位提示
+		 * @param initial - 初值
+		 * @returns {Promise<string|null>} 确定/回车 = 文本（可为空串）；取消 = null
 		 */
+		function askText(label, hint, initial) {
+			return new Promise((resolve) => {
+				for (const o of Array.from(document.querySelectorAll(".ff-asktext"))) {
+					try { o.remove(); } catch { /* 忽略 */ }
+				}
+				const box = el("div", "ff-confirm ff-asktext");
+				const tx = el("div", undefined, String(label || ""));
+				tx.style.fontSize = "13px";
+				tx.style.lineHeight = "1.5";
+				box.append(tx);
+				const inp = el("input");
+				inp.type = "text";
+				inp.placeholder = String(hint || "");
+				inp.value = String(initial == null ? "" : initial);
+				inp.style.cssText = "width:100%;box-sizing:border-box;font:inherit;font-size:12.5px;padding:6px 8px;"
+					+ "border-radius:6px;border:1px solid var(--dsw-alias-border-l2);"
+					+ "background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)";
+				box.append(inp);
+				const row = el("div", "ff-confirm-row");
+				const no = el("button", "ff-btn", "取消");
+				const yes = el("button", "ff-btn w", "确定");
+				const done = (v) => {
+					try { box.remove(); } catch { /* 忽略 */ }
+					resolve(v);
+				};
+				no.addEventListener("click", (ev) => { ev.stopPropagation(); done(null); });
+				yes.addEventListener("click", (ev) => { ev.stopPropagation(); done(String(inp.value || "")); });
+				inp.addEventListener("keydown", (ev) => {
+					if (ev.key === "Enter") { ev.preventDefault(); ev.stopPropagation(); done(String(inp.value || "")); }
+					else if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); done(null); }
+				});
+				row.append(no, yes);
+				box.append(row);
+				box.style.left = Math.round(window.innerWidth / 2 - 150) + "px";
+				box.style.top = "120px";
+				document.body.append(box);
+				setTimeout(() => { try { inp.focus(); inp.select(); } catch { /* 忽略 */ } }, 30);
+			});
+		}
+
+
 		function AssetsOverlay() {
 			const screen = useScreen();
 			const [items, setItems] = react.useState([]);
@@ -5265,7 +6630,10 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			const [credit, setCredit] = react.useState("");
 			const [filter, setFilter] = react.useState("all");
 			const [folder, setFolder] = react.useState("");
+			const [roleOnly, setRoleOnly] = react.useState(false);
 			const [err, setErr] = react.useState("");
+			const [tick, setTick] = react.useState(0);
+			const reload = () => setTick((t) => t + 1);
 
 			react.useEffect(() => {
 				if (screen !== "assets") return undefined;
@@ -5287,10 +6655,30 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 					.then((j) => { if (alive) setItems(j.items || []); })
 					.catch((e) => { if (alive) setErr(String((e && e.message) || e)); });
 				return () => { alive = false; };
-			}, [screen]);
+			}, [screen, tick]);
 
 			if (screen !== "assets") return null;
 			syncRailWidth();
+
+			const ROOTOF = (it) => String(it.root || folder || "");
+			const setStateOf = (it, st) => {
+				post("/filmflow/assets", { action: "state", root: ROOTOF(it), id: it.id, state: st })
+					.then(reload)
+					.catch((e) => setErr(String((e && e.message) || e)));
+			};
+			const setRoleOf = async (it) => {
+				const nm = await askText("角色库 · 角色名", "例如：唐老板 / 警察（留空=移出角色库）", String((it.role && it.role.name) || ""));
+				if (nm === null) return;
+				post("/filmflow/assets", { action: "role", root: ROOTOF(it), id: it.id, name: nm })
+					.then(reload)
+					.catch((e) => setErr(String((e && e.message) || e)));
+			};
+			const delOf = (it) => {
+				if (!confirm("删掉这条素材？")) return;
+				post("/filmflow/assets", { action: "remove", root: ROOTOF(it), id: it.id })
+					.then(reload)
+					.catch((e) => setErr(String((e && e.message) || e)));
+			};
 
 			/* 项目文件夹：先按全部项目铺一遍（空文件夹也在），再把素材归进去 */
 			const folders = [];
@@ -5326,54 +6714,93 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 				return String(a.film).localeCompare(String(b.film), "zh");
 			});
 
+			const roles = items.filter((x) => x.role && String(x.role.name || "").trim());
 			const inside = items.filter((x) => String(x.root || "") === folder);
-			const shown = inside.filter((x) => filter === "all" || x.type === filter);
+			const shown = roleOnly
+				? roles.filter((x) => filter === "all" || x.type === filter)
+				: inside.filter((x) => filter === "all" || x.type === filter);
 			const cur = folders.find((f) => f.root === folder) || null;
+
+			const card = (it, showFilm) => {
+				const r = ROOTOF(it);
+				const url = "/filmflow/assets?action=file&root=" + encodeURIComponent(r) + "&p=" + encodeURIComponent(it.src);
+				const st = String(it.state || "candidate");
+				return h("div", {
+					key: String(r) + "|" + it.id,
+					className: "ff-asset-card" + (st === "accepted" ? " p" : ""),
+					onClick: () => openViewer({ root: r, item: it }),
+				},
+					it.type === "image"
+						? h("img", { className: "im", src: url, loading: "lazy" })
+						: it.type === "video"
+							? h("video", { className: "im", src: url, preload: "metadata", muted: true })
+							: h("div", { className: "im", style: { display: "flex", alignItems: "center", justifyContent: "center", color: "#bbb", fontSize: 13 } }, "🔊 音频"),
+					h("div", { className: "info" },
+						h("div", { className: "t" }, (st === "accepted" ? "✓ " : "") + String(it.nodeTitle || it.node || "")),
+						h("div", { className: "m" }, (showFilm ? String(it.film || "") + "　" : "")
+							+ (it.role && it.role.name ? "★ " + String(it.role.name) + "　" : "")
+							+ String(it.model || "") + "　" + new Date(it.at).toLocaleDateString()),
+						h("div", { className: "ff-asset-acts" },
+							it.type !== "audio"
+								? h("button", {
+									className: "ff-btn",
+									onClick: (e) => { e.stopPropagation(); setStateOf(it, st === "accepted" ? "candidate" : "accepted"); },
+								}, st === "accepted" ? "取消采用" : "采用")
+								: null,
+							h("button", {
+								className: "ff-btn",
+								onClick: (e) => { e.stopPropagation(); void setRoleOf(it); },
+							}, it.role && it.role.name ? "改角色名" : "设为角色"),
+							h("button", {
+								className: "ff-btn",
+								onClick: (e) => { e.stopPropagation(); delOf(it); },
+							}, "删"))));
+			};
 
 			return h("div", { className: "ff-assets" },
 				h("div", { className: "ff-assets-bar" },
-					folder
-						? h("button", { className: "ff-crumb", onClick: () => setFolder("") }, "← 素材库")
-						: h("span", { className: "ff-docs-hd" }, "素材库"),
+					roleOnly
+						? h("button", { className: "ff-crumb", onClick: () => setRoleOnly(false) }, "← 素材库")
+						: folder
+							? h("button", { className: "ff-crumb", onClick: () => setFolder("") }, "← 素材库")
+							: h("span", { className: "ff-docs-hd" }, "素材库"),
 					h("span", { className: "ff-docs-meta" },
-						folder
-							? (cur ? cur.film : "项目") + " · " + shown.length + " / " + inside.length + " 条"
-							: folders.length + " 个项目 · " + items.length + " 条"),
+						roleOnly
+							? "角色库 · " + shown.length + " 个角色图（跨项目）"
+							: folder
+								? (cur ? cur.film : "项目") + " · " + shown.length + " / " + inside.length + " 条"
+								: folders.length + " 个项目 · " + items.length + " 条"),
 					credit ? h("span", { className: "ff-docs-meta", title: "小云雀积分余额" }, "积分 " + credit) : null,
 					h("span", { style: { flex: 1 } }),
-					folder ? ["all", "image", "video", "audio"].map((t) => h("button", {
+					(!folder && !roleOnly)
+						? h("button", { className: "ff-btn", onClick: () => { setRoleOnly(true); setFilter("all"); } }, "角色库（" + roles.length + "）")
+						: null,
+					(folder || roleOnly) ? ["all", "image", "video", "audio"].map((t) => h("button", {
 						key: t,
 						className: "ff-btn" + (filter === t ? " p" : ""),
 						onClick: () => setFilter(t),
 					}, t === "all" ? "全部" : t === "image" ? "图片" : t === "video" ? "视频" : "音频")) : null,
 					h("div", { className: "ff-btn", onClick: () => setScreen(ENTERED ? "work" : "menu") }, ENTERED ? "回画布" : "返回片库")),
-				!folder
-					? h("div", { className: "ff-folder-grid" },
-						folders.length ? folders.map((f) => h("div", {
-							key: f.root || f.film,
-							className: "ff-folder",
-							onClick: () => { setFolder(f.root); setFilter("all"); },
-						},
-							h("div", { className: "ff-folder-ic" }, "📁"),
-							h("div", { className: "ff-folder-t" }, f.film),
-							h("div", { className: "ff-folder-m" }, f.count + " 条素材"))) :
-						h("div", { className: "ff-media-empty", style: { margin: "auto" } }, err || "还没有任何素材"))
-					: h("div", { className: "ff-assets-grid" },
-						shown.length ? shown.map((it) => {
-							const r = String(it.root || folder);
-							const url = "/filmflow/assets?action=file&root=" + encodeURIComponent(r) + "&p=" + encodeURIComponent(it.src);
-							return h("div", {
-								key: it.id,
-								className: "ff-asset-card",
-								onClick: () => openViewer({ root: r, item: it }),
+				err ? h("div", { className: "ff-media-empty", style: { margin: "auto" } }, err) : null,
+				roleOnly
+					? h("div", { className: "ff-assets-grid" },
+						shown.length ? shown.map((it) => card(it, true))
+							: h("div", { className: "ff-media-empty", style: { gridColumn: "1/-1", margin: "auto" } },
+								"角色库还是空的：在任意素材上点「设为角色」并起个名字，绑参考图时就能直接选"))
+					: !folder
+						? h("div", { className: "ff-folder-grid" },
+							folders.length ? folders.map((f) => h("div", {
+								key: f.root || f.film,
+								className: "ff-folder",
+								onClick: () => { setFolder(f.root); setFilter("all"); },
 							},
-								it.type === "image"
-									? h("img", { className: "im", src: url, loading: "lazy" })
-									: h("div", { className: "im", style: { display: "flex", alignItems: "center", justifyContent: "center", color: "#bbb", fontSize: 13 } }, it.type === "video" ? "▶ 视频" : "🔊 音频"),
-								h("div", { className: "info" },
-									h("div", { className: "t" }, String(it.nodeTitle || it.node || "")),
-									h("div", { className: "m" }, String(it.model || "") + "　" + new Date(it.at).toLocaleDateString())));
-						}) : h("div", { className: "ff-media-empty", style: { gridColumn: "1/-1", margin: "auto" } }, "这个项目还没有素材")));
+								h("div", { className: "ff-folder-ic" }, "📁"),
+								h("div", { className: "ff-folder-t" }, f.film),
+								h("div", { className: "ff-folder-m" }, f.count + " 条素材"))) :
+							h("div", { className: "ff-media-empty", style: { margin: "auto" } }, err || "还没有任何素材"))
+						: h("div", { className: "ff-assets-grid" },
+							shown.length ? shown.map((it) => card(it, false))
+								: h("div", { className: "ff-media-empty", style: { gridColumn: "1/-1", margin: "auto" } }, "这个项目还没有素材")));
 		}
 		/**
 		 * 左侧竖条的真实宽度写进 CSS 变量。
@@ -5686,10 +7113,24 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 			// 只在工作屏幕里挂画布；换屏幕就卸载（定时器跟着清）
 			react.useEffect(() => {
 				if (screen !== "work") return undefined;
-				return mountCanvas(ref.current, {
+				const kill = mountCanvas(ref.current, {
 					root: ENTERED,
 					onBack: () => setScreen("menu"),
 				});
+				/*
+				 * 刚点进片子时，宿主的「当前项目」可能还没切过来 ⇒ 画布第一次 load 拿到的是旧状态，
+				 * 画出来是空的（用户 2026-11-06 报：必须手动点一次刷新）。
+				 * 这里在挂载后自动点一次「刷新」，用户不用再点。
+				 */
+				const nudge = setTimeout(() => {
+					try {
+						const host = ref.current || document;
+						const btns = Array.from(host.querySelectorAll(".ff-btn"));
+						const rl = btns.find((b) => String(b.textContent || "").trim() === "刷新");
+						if (rl) rl.click();
+					} catch { /* 忽略 */ }
+				}, 700);
+				return () => { clearTimeout(nudge); if (typeof kill === "function") kill(); };
 			}, [screen]);
 
 			/*
@@ -5834,6 +7275,34 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 		/** 浏览器侧 ctx（要拿 `uiWorkspace` / `remote` 来切会话）。 */
 		let ACTIVE_CTX = null;
 
+		/*
+		 * 输入框引用「小胶囊」（D41，2026-11-06）：选中画布图片时，不再往输入框里塞长文本
+		 * （那种 @图[名字](素材/…png) 的写法），而是插一枚官方 reference chip ——
+		 * 输入框里只显示小图标 +「图片」，**发给 agent 的仍是完整 mention（路径一字不差）**：
+		 * chip 的模型文本由我们注册的 referita 源 codec 决定（见 MENTION_SOURCE）。
+		 * 两个服务缺任何一个都自动退回纯文本，不影响别的功能。
+		 */
+		const MENTION_SOURCE = "ffimg";
+		const MENTION_LABEL = " ";   /* 空标签会被官方拒；用空格 = 只剩图标，图标再被缩略图盖住 */
+		let MENTION_HUB = null;   /* ctx.conversation.input（会话输入门面） */
+		let LAST_SHELL = null;    /* 上次插成功的会话输入门面（草稿投影要用） */
+		const MENTION_LABEL_FALLBACK = "图片";   /* 空格标签也被拒时的退路 */
+		const MENTION_SOURCE_DEF = {
+			trigger: "@",
+			name: MENTION_SOURCE,
+			order: 90,
+			showGroupTitle: false,
+			/* 不往 @ 菜单里放任何候选（我们只借它做编解码，菜单由 ＋ 面板负责） */
+			candidates: async () => [],
+			onPick: () => undefined,
+			codec: {
+				/* 剪贴板 / 草稿持久化的形态 */
+				clipboardText: (ref) => String(ref || ""),
+				/* 真正发给 agent 的形态：完整 mention（含项目相对路径） */
+				serialize: async (ref) => String(ref || ""),
+			},
+		};
+
 		/**
 		 * 需要的浏览器侧服务：
 		 *   slots / layout —— 槽位与主面板
@@ -5853,6 +7322,30 @@ button.ff-btn:disabled{opacity:.55;cursor:default}
 		function apply(ctx) {
 			ACTIVE_LAYOUT = ctx.layout;
 			ACTIVE_CTX = ctx;
+
+			/*
+			 * 注册「画布图片」引用源的编解码 + 拿到会话输入门面（D41）。
+			 * 用 ctx.inject 而不是写进插件 inject：这两个服务在别的宿主里可能没有，
+			 * 缺了只影响小胶囊（自动退回纯文本），不能让整个插件不激活。
+			 */
+			try {
+				ctx.inject(["conversation", "inputTriggers"], (c) => {
+					MENTION_HUB = (c.conversation && c.conversation.input) || null;
+					try {
+						const off = c.inputTriggers.registerSource(MENTION_SOURCE_DEF);
+						/*
+						 * 自检：同名（trigger+name）再注册一次必须抛错 —— 抛了才说明上面那次真的注册上了。
+						 * 结果放在 window.__ffMentionSourceOk，排查时一眼能看到（不影响任何功能）。
+						 */
+						try {
+							const probe = c.inputTriggers.registerSource({ trigger: "@", name: MENTION_SOURCE, order: 91, candidates: async () => [], onPick: () => undefined });
+							probe();
+							window.__ffMentionSourceOk = false;
+						} catch { window.__ffMentionSourceOk = true; }
+						c.effect(() => () => { try { off(); } catch { /* 忽略 */ } }, "filmflow: mention source");
+					} catch { /* 同名已注册 / 老版本：退回纯文本 */ }
+				});
+			} catch { /* 没有这些服务 */ }
 
 			// 记住上次进的是哪部片（刷新之后控制条上的「工序」仍然可点）
 			try { ENTERED = localStorage.getItem("filmflow.entered") || ""; } catch { /* 忽略 */ }

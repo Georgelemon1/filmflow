@@ -524,6 +524,10 @@ export const TEMPLATE_CHILDREN = {
     'scene', 'props', 'blank',
   ],
   character: ['character-one'],
+  /* 2026-11-05：场景/道具改成"主体容器"（一个场景/道具一个节点，标题=名字） */
+  scene: ['scene-one'],
+  props: ['prop-one'],
+  look: ['look-one'],
   'character-one': ['identity', 'personality', 'appearance', 'costume'],
   costume: ['costume-top', 'costume-bottom', 'costume-shoes'],
   worldview: ['blank'],
@@ -648,7 +652,12 @@ export function canAddUnder(parentRaw, templates, opts = {}) {
     /*
      * 身份检查**不管父有没有身份都要跑**：描述节点（身份/上装…）挂在"不是它主节点"的
      * 地方（包括空白工序这种没有身份的父）同样必须被拦住，否则菜单会列出来、落盘被拒。
+     *
+     * 例外（2026-11-05 D39）：子模板自己用 `usableUnder` **显式点名**要挂在这个父模板下时，
+     * 跳过身份层 —— 否则「图片节点」永远挂不到「人物·单人」下面（它没有身份，认不出）。
      */
+    const declaredUnder = Array.isArray(tpl.usableUnder) ? tpl.usableUnder.map(String) : [];
+    if (parentKey && declaredUnder.includes(String(parentKey))) return true;
     const selfId = identityOfTemplate({ id }) || identityOfTitle(tpl.title);
     if (!checkIdentityPlacement(selfId || null, identity || null, true).ok) return false;
     return true;

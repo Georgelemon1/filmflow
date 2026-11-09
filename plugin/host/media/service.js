@@ -74,6 +74,13 @@ export function createMediaService(opts) {
     try { writeFileSync(tmp, ''); } catch { /* 忽略 */ }
   };
 
+  /** 提示词 + 参数的短指纹：用来判重（同一句话同一组参数，不该再花第二次钱）。 */
+  const promptHashOf = (prompt, params) => {
+    try {
+      return 'p_' + createHash('sha1').update(String(prompt || '') + '|' + JSON.stringify(params || {})).digest('hex').slice(0, 10);
+    } catch { return ''; }
+  };
+
   /**
    * 某节点最新的一条素材。
    * @param items 资产数组
@@ -220,6 +227,11 @@ function inlineImageUrl(root, rel) {
           at: new Date().toISOString(),
           star: false,
           taskId: '',
+          /* 2026-11-05：素材库要能收敛（采用/废弃）、判重、挂角色名 */
+          kind: 'output',
+          state: 'candidate',
+          role: null,
+          promptHash: promptHashOf(prompt, { model: media.model || 'seed-audio-1.0', format: fmt }),
         };
         dataA.items.push(itemA);
         writeAssets(root, dataA);
@@ -319,6 +331,11 @@ function inlineImageUrl(root, rel) {
           at: new Date().toISOString(),
           star: false,
           taskId: job.taskId || '',
+          /* 2026-11-05：素材库要能收敛（采用/废弃）、判重、挂角色名 */
+          kind: 'output',
+          state: 'candidate',
+          role: null,
+          promptHash: promptHashOf(prompt, { resolution: media.resolution || '', ratio: media.ratio || '', durationSec: media.durationSec || 0 }),
         };
         data.items.push(item);
         made.push(item);
@@ -623,6 +640,44 @@ function inlineImageUrl(root, rel) {
     return { ok: true, id, star: item.star };
   };
 
+  /**
+   * 采用 / 废弃 / 回到候选。
+   *
+   * 采用是**每个生成单元一条**：同一 `node` 下只留一条 accepted，其余回落 candidate。
+   * 画布「预览」列读它，成片拼接也读它 —— 不能靠"最新一条"隐式决定用哪条（2026-11-05）。
+   */
+  const setAssetState = (root, id, state) => {
+    const data = readAssets(root);
+    const item = data.items.find((x) => x.id === id);
+    if (!item) throw new Error('没有这条素材：' + id);
+    const want = ['accepted', 'rejected', 'candidate'].includes(String(state)) ? String(state) : 'candidate';
+    if (want === 'accepted') {
+      for (const x of data.items) {
+        if (x.id !== item.id && String(x.node) === String(item.node) && String(x.state) === 'accepted') x.state = 'candidate';
+      }
+    }
+    item.state = want;
+    item.stateAt = new Date().toISOString();
+    writeAssets(root, data);
+    return { ok: true, id, state: want, node: String(item.node || '') };
+  };
+
+  /**
+   * 角色库标记：给一条素材挂上角色名（跨项目全局可见），空名 = 取消。
+   * **只是素材上的一个标签**，不改元素、不改绑定 —— 用户 2026-11-05：
+   * 「agent 列出的参考元素在数据上不要有区别，只是用户选择参考文件时更方便」。
+   */
+  const setAssetRole = (root, id, name) => {
+    const data = readAssets(root);
+    const item = data.items.find((x) => x.id === id);
+    if (!item) throw new Error('没有这条素材：' + id);
+    const nm = String(name || '').trim();
+    if (nm) item.role = { name: nm, at: new Date().toISOString() };
+    else delete item.role;
+    writeAssets(root, data);
+    return { ok: true, id, role: item.role || null };
+  };
+
   /** 资产文件绝对路径（给路由伺服用，带越界检查）。 */
   const assetPath = (root, rel) => {
     const clean = String(rel || '').replace(/\\/g, '/');
@@ -653,6 +708,9 @@ function inlineImageUrl(root, rel) {
     listAssets,
     removeAsset,
     starAsset,
+    setAssetState,
+    setAssetRole,
+    promptHashOf,
     assetPath,
     readAssets,
   };
